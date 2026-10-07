@@ -1,0 +1,78 @@
+// AI Lead Response Agent — initial schema (auth + tenancy foundation)
+// Doc ref: agent.md §12 (Database), §6 (Authorization), §Platform Administration
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Platform-level role. Separate from business membership (agent.md §Platform Administration).
+enum PlatformRole {
+  USER
+  PLATFORM_ADMIN
+}
+
+/// Business membership role (agent.md §6).
+enum MemberRole {
+  OWNER
+  ADMIN
+  STAFF
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum BusinessStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model User {
+  id             String       @id @default(cuid())
+  email          String       @unique
+  passwordHash   String
+  name           String?
+  platformRole   PlatformRole @default(USER)
+  status         UserStatus   @default(ACTIVE)
+  emailVerified  DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  memberships BusinessMember[]
+
+  @@map("users")
+}
+
+model Business {
+  id        String         @id @default(cuid())
+  name      String
+  status    BusinessStatus @default(ACTIVE)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  members BusinessMember[]
+
+  @@map("businesses")
+}
+
+/// Verified multi-tenancy link: user ↔ business (agent.md §6, §13).
+model BusinessMember {
+  id         String     @id @default(cuid())
+  businessId String
+  userId     String
+  role       MemberRole
+  createdAt  DateTime   @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, userId])
+  @@index([userId])
+  @@map("business_members")
+}
