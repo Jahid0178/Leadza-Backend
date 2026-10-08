@@ -2,6 +2,7 @@ import { getSession } from "@auth/express";
 import type { NextFunction, Request, Response } from "express";
 import { ApiError } from "../utils/api-error";
 import { authConfig } from "./auth";
+import { assertPlatformAdmin } from "./permissions";
 import { toSessionUser } from "./session";
 
 /**
@@ -22,14 +23,11 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
 
 /**
  * Platform administrator authorization (agent.md §Platform Admin Security).
- * Never rely on the frontend to protect admin routes — this runs on every admin endpoint.
+ * Never rely on the frontend to protect admin routes — this runs on every
+ * admin endpoint. The decision itself lives in permissions.ts so all
+ * authorization goes through one module.
  */
 export function requirePlatformAdmin(req: Request, _res: Response, next: NextFunction) {
-  if (req.user?.platformRole !== "PLATFORM_ADMIN") {
-    throw ApiError.forbidden(
-      "PLATFORM_ADMIN_REQUIRED",
-      "Platform administrator access is required.",
-    );
-  }
+  assertPlatformAdmin(req.user);
   next();
 }
