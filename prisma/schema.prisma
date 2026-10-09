@@ -50,11 +50,23 @@ model User {
 }
 
 model Business {
-  id        String         @id @default(cuid())
-  name      String
-  status    BusinessStatus @default(ACTIVE)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id         String         @id @default(cuid())
+  name       String
+  /// Free-text business type ("Plumber", "Electrician", …) — FEATURES §8.
+  type       String?
+  website    String?
+  phone      String?
+  email      String?
+  address    String?
+  description String?
+  /// Coordinates from the chosen Nominatim suggestion (null for typed-only addresses).
+  latitude   Float?
+  longitude  Float?
+  status     BusinessStatus @default(ACTIVE)
+  /// Set when the owner finishes the onboarding flow; null = resume it (§9).
+  onboardingCompletedAt DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
 
   members BusinessMember[]
 
