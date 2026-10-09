@@ -4,6 +4,7 @@ import { apiError, apiSuccess } from "../utils/api-response";
 import adminRoutes from "./admin.routes";
 import authRoutes from "./auth.routes";
 import businessRoutes from "./businesses.routes";
+import geocodeRoutes from "./geocode.routes";
 
 const router = Router();
 
@@ -24,5 +25,6 @@ router.get("/health", async (_req, res) => {
 router.use("/auth", authRoutes);
 router.use("/admin", adminRoutes);
 router.use("/businesses", businessRoutes);
+router.use("/geocode", geocodeRoutes);
 
 export default router;
