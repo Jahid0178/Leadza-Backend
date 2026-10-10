@@ -33,6 +33,28 @@ enum BusinessStatus {
   SUSPENDED
 }
 
+enum PriceType {
+  FIXED
+  FROM
+  FREE
+  CUSTOM
+}
+
+enum Weekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum KnowledgeEntryType {
+  FAQ
+  BUSINESS
+}
+
 model User {
   id             String       @id @default(cuid())
   email          String       @unique
@@ -68,7 +90,11 @@ model Business {
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @updatedAt
 
-  members BusinessMember[]
+  members   BusinessMember[]
+  services  Service[]
+  areas     ServiceArea[]
+  hours     BusinessHour[]
+  knowledge KnowledgeEntry[]
 
   @@map("businesses")
 }
@@ -87,4 +113,87 @@ model BusinessMember {
   @@unique([businessId, userId])
   @@index([userId])
   @@map("business_members")
+}
+
+/// A service the business offers (FEATURES §10).
+model Service {
+  id          String     @id @default(cuid())
+  businessId  String
+  name        String
+  description String?
+  price       Float?
+  priceType   PriceType  @default(FIXED)
+  duration    Int?
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("services")
+}
+
+/// A place the business serves (FEATURES §11).
+model ServiceArea {
+  id         String   @id @default(cuid())
+  businessId String
+  /// Normalized label, e.g. a postcode, town, city, or area name.
+  value      String
+  label      String?
+  /// Optional serving radius in kilometers when the area is radius-based.
+  radiusKm   Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, value])
+  @@index([businessId])
+  @@map("service_areas")
+}
+
+/// Business opening hours (FEATURES §12).
+model BusinessHour {
+  id          String    @id @default(cuid())
+  businessId  String
+  weekday     Weekday
+  /// Start of the first range, e.g. "08:00".
+  startTime   String
+  /// End of the last range, e.g. "18:00".
+  endTime     String
+  /// Multiple non-overlapping ranges can be modeled with separate rows per business/day.
+  orderIndex  Int       @default(0)
+  closed      Boolean   @default(false)
+  emergency   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, weekday, orderIndex])
+  @@index([businessId])
+  @@map("business_hours")
+}
+
+/// Business knowledge entries (FEATURES §13).
+/// `isActive` = Published (true) / Draft (false); `archivedAt` set = archived
+/// and hidden from the dashboard list, so a draft is never an archive.
+model KnowledgeEntry {
+  id         String             @id @default(cuid())
+  businessId String
+  question   String
+  answer     String
+  type       KnowledgeEntryType @default(FAQ)
+  category   String             @default("FAQ")
+  tags       String[]           @default([])
+  isActive   Boolean            @default(true)
+  archivedAt DateTime?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("knowledge_entries")
 }
