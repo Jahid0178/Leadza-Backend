@@ -9,6 +9,8 @@ import serviceRoutes from "./services.routes";
 import serviceAreaRoutes from "./servicearea.routes";
 import businessHourRoutes from "./businesshour.routes";
 import knowledgeRoutes from "./knowledge.routes";
+import customerRoutes from "./customers.routes";
+import leadRoutes from "./leads.routes";
 
 const router = Router();
 
@@ -34,5 +36,7 @@ router.use("/services", serviceRoutes);
 router.use("/areas", serviceAreaRoutes);
 router.use("/hours", businessHourRoutes);
 router.use("/knowledge", knowledgeRoutes);
+router.use("/customers", customerRoutes);
+router.use("/leads", leadRoutes);
 
 export default router;
