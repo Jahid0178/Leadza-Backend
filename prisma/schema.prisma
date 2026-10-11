@@ -55,6 +55,38 @@ enum KnowledgeEntryType {
   BUSINESS
 }
 
+/// Lead lifecycle (FEATURES §15, agent.md §19). The backend owns the
+/// transition table between these — the frontend may never jump states.
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFYING
+  QUALIFIED
+  BOOKED
+  WON
+  LOST
+  SPAM
+  CANCELLED
+}
+
+/// Where a lead originated (FEATURES §16). Lets businesses measure which
+/// channels generate results.
+enum LeadSource {
+  WEBSITE
+  WHATSAPP
+  EMAIL
+  SMS
+  FACEBOOK
+  INSTAGRAM
+}
+
+/// How soon the customer needs help (FEATURES §17 example: "Urgency: High").
+enum LeadUrgency {
+  LOW
+  MEDIUM
+  HIGH
+}
+
 model User {
   id             String       @id @default(cuid())
   email          String       @unique
@@ -96,6 +128,7 @@ model Business {
   hours     BusinessHour[]
   knowledge KnowledgeEntry[]
   customers Customer[]
+  leads     Lead[]
 
   @@map("businesses")
 }
@@ -130,6 +163,7 @@ model Service {
   updatedAt   DateTime   @updatedAt
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  leads    Lead[]
 
   @@index([businessId])
   @@map("services")
@@ -192,11 +226,49 @@ model Customer {
   updatedAt  DateTime @updatedAt
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  leads    Lead[]
 
   @@index([businessId])
   @@index([businessId, phone])
   @@index([businessId, email])
   @@map("customers")
+}
+
+/// A potential customer enquiry (FEATURES §15, agent.md §19–20).
+/// Status transitions are validated in the backend against the lifecycle
+/// table — the frontend may never jump a lead to an arbitrary state.
+model Lead {
+  id         String     @id @default(cuid())
+  businessId String
+  customerId String
+  /// Optional: the enquiry may name no specific service yet.
+  serviceId  String?
+  status     LeadStatus @default(NEW)
+  source     LeadSource @default(WEBSITE)
+  urgency    LeadUrgency?
+  /// Free-text town/city the job is at (§15).
+  location   String?
+  postcode   String?
+  /// Budget the customer mentioned, in GBP (§15, §17).
+  budget     Float?
+  /// Preferred appointment date/time as captured (§15, §17).
+  preferredDate DateTime?
+  preferredTime String?
+  /// The customer's original message (agent.md §20).
+  customerMessage String?
+  /// Rule-based score 0-100 (§18, step 23); null until scored.
+  leadScore  Int?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  service  Service?  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, customerId])
+  @@map("leads")
 }
 
 /// Business knowledge entries (FEATURES §13).
