@@ -95,6 +95,7 @@ model Business {
   areas     ServiceArea[]
   hours     BusinessHour[]
   knowledge KnowledgeEntry[]
+  customers Customer[]
 
   @@map("businesses")
 }
@@ -174,6 +175,28 @@ model BusinessHour {
   @@unique([businessId, weekday, orderIndex])
   @@index([businessId])
   @@map("business_hours")
+}
+
+/// A person who enquired about the business's services (FEATURES §14).
+/// The same customer may have multiple leads over time; find-or-create is
+/// keyed on (businessId, phone) or (businessId, email).
+model Customer {
+  id         String   @id @default(cuid())
+  businessId String
+  name       String
+  email      String?
+  phone      String?
+  postcode   String?
+  address    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([businessId, phone])
+  @@index([businessId, email])
+  @@map("customers")
 }
 
 /// Business knowledge entries (FEATURES §13).
