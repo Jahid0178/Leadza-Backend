@@ -20,6 +20,9 @@ function toBusinessDto(business: {
   email: string | null;
   address: string | null;
   description: string | null;
+  currency: string;
+  locale: string;
+  timezone: string;
   latitude: number | null;
   longitude: number | null;
   status: string;
@@ -35,6 +38,9 @@ function toBusinessDto(business: {
     email: business.email,
     address: business.address,
     description: business.description,
+    currency: business.currency,
+    locale: business.locale,
+    timezone: business.timezone,
     latitude: business.latitude,
     longitude: business.longitude,
     status: business.status,
