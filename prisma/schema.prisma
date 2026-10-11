@@ -113,6 +113,13 @@ model Business {
   email      String?
   address    String?
   description String?
+  /// Presentation settings so the platform works in any country (§15, §30).
+  /// ISO 4217 currency used to format money (lead budget, service prices).
+  currency   String         @default("GBP")
+  /// BCP-47 locale used to format dates, times and numbers.
+  locale     String         @default("en-GB")
+  /// IANA timezone used to render timestamps in the business's local time.
+  timezone   String         @default("Europe/London")
   /// Coordinates from the chosen Nominatim suggestion (null for typed-only addresses).
   latitude   Float?
   longitude  Float?
@@ -248,9 +255,8 @@ model Lead {
   urgency    LeadUrgency?
   /// Free-text town/city the job is at (§15).
   location   String?
-  postcode   String?
-  /// Budget the customer mentioned, in GBP (§15, §17).
-  budget     Float?
+  postcode   String?  /// Budget the customer mentioned, in the business's currency (§15, §17).
+  budget          Float?
   /// Preferred appointment date/time as captured (§15, §17).
   preferredDate DateTime?
   preferredTime String?

@@ -18,6 +18,9 @@ export interface BusinessProfilePatch {
   email?: string | null;
   address?: string | null;
   description?: string | null;
+  currency?: string;
+  locale?: string;
+  timezone?: string;
   latitude?: number | null;
   longitude?: number | null;
 }
