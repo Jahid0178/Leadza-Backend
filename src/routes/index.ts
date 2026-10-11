@@ -5,6 +5,10 @@ import adminRoutes from "./admin.routes";
 import authRoutes from "./auth.routes";
 import businessRoutes from "./businesses.routes";
 import geocodeRoutes from "./geocode.routes";
+import serviceRoutes from "./services.routes";
+import serviceAreaRoutes from "./servicearea.routes";
+import businessHourRoutes from "./businesshour.routes";
+import knowledgeRoutes from "./knowledge.routes";
 
 const router = Router();
 
@@ -26,5 +30,9 @@ router.use("/auth", authRoutes);
 router.use("/admin", adminRoutes);
 router.use("/businesses", businessRoutes);
 router.use("/geocode", geocodeRoutes);
+router.use("/services", serviceRoutes);
+router.use("/areas", serviceAreaRoutes);
+router.use("/hours", businessHourRoutes);
+router.use("/knowledge", knowledgeRoutes);
 
 export default router;
