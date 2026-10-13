@@ -12,6 +12,7 @@ import knowledgeRoutes from "./knowledge.routes";
 import customerRoutes from "./customers.routes";
 import leadRoutes from "./leads.routes";
 import conversationRoutes from "./conversations.routes";
+import analyticsRoutes from "./analytics.routes";
 
 const router = Router();
 
@@ -40,5 +41,6 @@ router.use("/knowledge", knowledgeRoutes);
 router.use("/customers", customerRoutes);
 router.use("/leads", leadRoutes);
 router.use("/conversations", conversationRoutes);
+router.use("/analytics", analyticsRoutes);
 
 export default router;
