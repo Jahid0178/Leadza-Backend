@@ -87,6 +87,33 @@ enum LeadUrgency {
   HIGH
 }
 
+/// Conversation lifecycle (FEATURES §19, §31). The backend owns the
+/// transitions between these — the frontend may never jump states.
+enum ConversationStatus {
+  AI_ACTIVE
+  HUMAN_REQUESTED
+  HUMAN_ACTIVE
+  CLOSED
+}
+
+/// Channel a conversation arrived on (FEATURES §19, §38).
+enum ConversationChannel {
+  WEBSITE
+  WHATSAPP
+  EMAIL
+  SMS
+  FACEBOOK
+  INSTAGRAM
+}
+
+/// Who wrote a message (FEATURES §20).
+enum MessageSender {
+  CUSTOMER
+  AI
+  HUMAN
+  SYSTEM
+}
+
 model User {
   id             String       @id @default(cuid())
   email          String       @unique
@@ -99,6 +126,7 @@ model User {
   updatedAt      DateTime     @updatedAt
 
   memberships BusinessMember[]
+  assignedConversations Conversation[] @relation("ConversationAssignee")
 
   @@map("users")
 }
@@ -136,6 +164,7 @@ model Business {
   knowledge KnowledgeEntry[]
   customers Customer[]
   leads     Lead[]
+  conversations Conversation[]
 
   @@map("businesses")
 }
@@ -234,6 +263,7 @@ model Customer {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   leads    Lead[]
+  conversations Conversation[]
 
   @@index([businessId])
   @@index([businessId, phone])
@@ -255,7 +285,8 @@ model Lead {
   urgency    LeadUrgency?
   /// Free-text town/city the job is at (§15).
   location   String?
-  postcode   String?  /// Budget the customer mentioned, in the business's currency (§15, §17).
+  postcode   String?
+  /// Budget the customer mentioned, in the business's currency (§15, §17).
   budget          Float?
   /// Preferred appointment date/time as captured (§15, §17).
   preferredDate DateTime?
@@ -266,10 +297,10 @@ model Lead {
   leadScore  Int?
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
-
-  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  customer Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  service  Service?  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  service  Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  conversations Conversation[]
 
   @@index([businessId])
   @@index([businessId, status])
@@ -297,4 +328,53 @@ model KnowledgeEntry {
 
   @@index([businessId])
   @@map("knowledge_entries")
+}
+
+/// A customer interaction thread (FEATURES §19, IMPLEMENTATION_PLAN step 15).
+/// Every enquiry belongs to a conversation; the backend owns the status
+/// transitions (AI ↔ human ↔ closed) — the frontend may never jump states.
+model Conversation {
+  id           String              @id @default(cuid())
+  businessId   String
+  customerId   String
+  /// Optional: a conversation may exist before/without a lead.
+  leadId       String?
+  channel      ConversationChannel @default(WEBSITE)
+  status       ConversationStatus  @default(AI_ACTIVE)
+  /// Staff member who took the thread over (FEATURES §31 "Assigned staff").
+  assignedToId String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedTo User?     @relation("ConversationAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  messages   Message[]
+
+  @@index([businessId])
+  @@index([businessId, status])
+  @@index([businessId, customerId])
+  @@index([leadId])
+  @@map("conversations")
+}
+
+/// A single message in a conversation (FEATURES §20).
+/// `aiGenerated` distinguishes AI replies from staff replies even though
+/// both use sender-specific provenance.
+model Message {
+  id                String              @id @default(cuid())
+  conversationId    String
+  sender            MessageSender
+  content           String
+  channel           ConversationChannel @default(WEBSITE)
+  aiGenerated       Boolean             @default(false)
+  /// Provider id for idempotent channel webhooks (§36, §39); null for native.
+  externalMessageId String?
+  createdAt         DateTime            @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("messages")
 }
