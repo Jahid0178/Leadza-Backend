@@ -11,6 +11,7 @@ import businessHourRoutes from "./businesshour.routes";
 import knowledgeRoutes from "./knowledge.routes";
 import customerRoutes from "./customers.routes";
 import leadRoutes from "./leads.routes";
+import conversationRoutes from "./conversations.routes";
 
 const router = Router();
 
@@ -38,5 +39,6 @@ router.use("/hours", businessHourRoutes);
 router.use("/knowledge", knowledgeRoutes);
 router.use("/customers", customerRoutes);
 router.use("/leads", leadRoutes);
+router.use("/conversations", conversationRoutes);
 
 export default router;
