@@ -6,6 +6,7 @@ import { authConfig } from "./auth/auth";
 import { env } from "./config/env";
 import { errorHandler, notFoundHandler } from "./middleware/error";
 import apiRoutes from "./routes";
+import widgetRoutes from "./routes/widget.routes";
 import { logger } from "./utils/logger";
 
 export function createApp() {
@@ -15,8 +16,21 @@ export function createApp() {
   app.set("trust proxy", env.NODE_ENV === "production");
   app.disable("x-powered-by");
 
-  // Credentialed CORS for the Next.js frontend (agent.md §10).
-  app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+  // Credentialed CORS for the Next.js frontend (agent.md §10). The public
+  // lead form (§21) is excluded here: it is submitted from the business's
+  // own website, so its router answers CORS itself with a reflected
+  // origin (and no credentials). Skipping it matters — a second cors()
+  // with a fixed origin would overwrite the reflected header on the
+  // actual POST (only preflights are answered and ended by the first
+  // middleware), and the installed cors build has no function-origin
+  // support to express both policies in one instance.
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api/v1/leads/public")) {
+      next();
+      return;
+    }
+    cors({ origin: env.CORS_ORIGIN, credentials: true })(req, res, next);
+  });
   app.use(express.json());
 
   // Structured request logs: request id, method, url, status, duration (§37).
@@ -31,6 +45,10 @@ export function createApp() {
 
   // Auth.js standard endpoints: /api/auth/session, /csrf, /callback/*, /signout (§5).
   app.use("/api/auth", ExpressAuth(authConfig));
+
+  // Embeddable website widget (§21) — served at the API root so the
+  // business snippet matches the spec example (step 18).
+  app.use(widgetRoutes);
 
   // Versioned backend API (§40).
   app.use("/api/v1", apiRoutes);

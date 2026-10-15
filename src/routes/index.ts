@@ -11,6 +11,7 @@ import businessHourRoutes from "./businesshour.routes";
 import knowledgeRoutes from "./knowledge.routes";
 import customerRoutes from "./customers.routes";
 import leadRoutes from "./leads.routes";
+import publicLeadRoutes from "./public-leads.routes";
 import conversationRoutes from "./conversations.routes";
 import analyticsRoutes from "./analytics.routes";
 
@@ -39,6 +40,9 @@ router.use("/areas", serviceAreaRoutes);
 router.use("/hours", businessHourRoutes);
 router.use("/knowledge", knowledgeRoutes);
 router.use("/customers", customerRoutes);
+// Public website form (§21) — mounted BEFORE the authed /leads router so
+// Express matches the unauthenticated path first (step 18).
+router.use("/leads/public", publicLeadRoutes);
 router.use("/leads", leadRoutes);
 router.use("/conversations", conversationRoutes);
 router.use("/analytics", analyticsRoutes);
