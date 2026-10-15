@@ -6,10 +6,15 @@ import { enforceGuardrails, type GuardrailViolation } from "./guardrails";
 import { buildSystemPrompt } from "./prompts/system-prompt";
 import {
   createAiProviderFromEnv,
+  type AiChatMessage,
+  type AiCompletion,
   type AiProvider,
   type AiUsage,
 } from "./provider";
 import { estimateCostUsd, logAiUsage } from "./usage";
+import { executeToolCall } from "./tools/executor";
+import { agentToolDefinitions } from "./tools/registry";
+import type { ToolContext } from "./tools/types";
 
 /**
  * The lead agent run (FEATURES §23, §25, IMPLEMENTATION_PLAN step 20).
@@ -72,14 +77,49 @@ export async function runLeadAgent(
   }
 
   const system = buildSystemPrompt(context);
-  const messages = [
+  const tools = agentToolDefinitions();
+
+  // Tools act on the conversation the agent is already authorised for — the
+  // model never supplies these ids (agent.md §16).
+  const toolContext: ToolContext = {
+    businessId: context.conversation.businessId,
+    conversationId,
+    customerId: context.conversation.customerId,
+    leadId: context.conversation.leadId,
+  };
+
+  const messages: AiChatMessage[] = [
     ...context.history,
-    { role: "user" as const, content: context.currentMessage },
+    { role: "user", content: context.currentMessage },
   ];
 
-  let completion;
+  // The model may call tools, see the results, and answer — bounded so a loop
+  // cannot run away. Tools are executed through the validated registry only.
+  const MAX_TOOL_ROUNDS = 3;
+  let completion: AiCompletion | null = null;
+  let handoffRequested = false;
+
   try {
-    completion = await provider.complete({ system, messages });
+    for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
+      completion = await provider.complete({ system, messages, tools });
+      if (!completion) break; // provider disabled — handled below
+
+      const calls = completion.toolCalls ?? [];
+      if (calls.length === 0) break; // the model answered directly
+
+      messages.push({ role: "assistant", content: completion.text, toolCalls: calls });
+      for (const call of calls) {
+        const { outcome } = await executeToolCall(toolContext, call);
+        if (call.name === "handoffToHuman" && outcome.ok) handoffRequested = true;
+        messages.push({
+          role: "tool",
+          toolCallId: call.id,
+          content: JSON.stringify(outcome),
+        });
+      }
+      // A handover ends the turn: the AI must not keep talking (§26).
+      if (handoffRequested) break;
+    }
   } catch (err) {
     // The queue owns retries; here we just report a safe failure.
     logger.error(
@@ -92,6 +132,26 @@ export async function runLeadAgent(
   if (!completion) {
     // No model configured — stay silent rather than fabricate (agent.md §17).
     return { status: "skipped", reason: "provider_disabled", provider: provider.name };
+  }
+
+  // The AI stopped because it asked for a person — do not add a reply on top.
+  if (handoffRequested) {
+    return {
+      status: "skipped",
+      reason: "handoff_requested",
+      provider: provider.name,
+      model: completion.model,
+    };
+  }
+
+  // A model that only ever asked for tools produced nothing to send.
+  if (completion.text.trim().length === 0) {
+    return {
+      status: "skipped",
+      reason: "empty_reply",
+      provider: provider.name,
+      model: completion.model,
+    };
   }
 
   // 2. Safety gate on the model's words before anything is stored (§25).
