@@ -13,10 +13,39 @@ import { createOpenRouterProvider } from "./providers/openrouter";
  * ./providers.
  */
 
-/** One chat turn handed to the model. */
+/**
+ * One chat turn handed to the model.
+ *
+ * The `tool` role carries a tool result back to the model, and an `assistant`
+ * turn may request tools via `toolCalls` — the two extra shapes function
+ * calling needs (IMPLEMENTATION_PLAN step 21).
+ */
 export interface AiChatMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** Set on an assistant turn that asked for tool calls. */
+  toolCalls?: AiToolCall[];
+  /** Set on a `tool` turn: the call it answers. */
+  toolCallId?: string;
+}
+
+/**
+ * A tool the model may call (name + JSON Schema). The agent translates these
+ * into whichever shape the provider needs; the model never sees implementation
+ * details, only the advertised contract (agent.md §15–16, step 21).
+ */
+export interface AiToolDefinition {
+  name: string;
+  description: string;
+  /** JSON Schema for the tool's arguments. */
+  parameters: Record<string, unknown>;
+}
+
+/** A tool call requested by the model. `arguments` is raw JSON (parsed or string). */
+export interface AiToolCall {
+  id: string;
+  name: string;
+  arguments: unknown;
 }
 
 /** Everything a provider needs for one completion. */
@@ -27,6 +56,10 @@ export interface AiCompletionRequest {
   messages: AiChatMessage[];
   maxOutputTokens?: number;
   temperature?: number;
+  /** Tools the model may call. Omit for a plain reply. */
+  tools?: AiToolDefinition[];
+  /** How the model may use tools. Defaults to the provider's own default. */
+  toolChoice?: "auto" | "none" | "required";
 }
 
 /** Token accounting returned by the provider (FEATURES §49, step 32). */
@@ -38,9 +71,12 @@ export interface AiUsage {
 
 /** A completed model turn. */
 export interface AiCompletion {
+  /** The reply text — may be empty when the model only asked for tools. */
   text: string;
   model: string;
   usage: AiUsage;
+  /** Tools the model asked to call; empty/undefined when it answered directly. */
+  toolCalls?: AiToolCall[];
 }
 
 export interface AiProvider {

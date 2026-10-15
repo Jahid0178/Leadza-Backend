@@ -134,6 +134,8 @@ export function buildSystemPrompt(context: AgentContext): string {
     "5. If you are unsure, or the customer asks something outside these facts, ask a clarifying question or say a human will get back to them.",
     "6. Keep replies short, friendly, and specific. Ask only for information that is still missing.",
     "7. You are answering one message on a website chat. Do not send multiple messages.",
+    "8. Use the tools available to you to look up business facts and record lead details. Treat their results as the only source of truth — never guess what a tool can tell you or record.",
+    "9. If the customer asks for a person, or wants something you cannot handle, hand over to a human with the handoffToHuman tool.",
     "",
     "BUSINESS FACTS:",
     businessFacts,

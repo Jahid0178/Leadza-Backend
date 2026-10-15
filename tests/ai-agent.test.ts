@@ -220,4 +220,86 @@ describe("runLeadAgent (§23, step 20)", () => {
     expect(result.status).toBe("skipped");
     expect(result.reason).toBe("not_found");
   });
+
+  it("runs requested tools, then stores the final reply (step 21)", async () => {
+    const conversationId = await makeConversation(
+      "AI_ACTIVE",
+      "Boiler repair needed, urgent, postcode RG1 4AB.",
+    );
+
+    let calls = 0;
+    const provider: AiProvider = {
+      name: "fake-tools",
+      async complete() {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            text: "",
+            model: "fake-model",
+            usage: { inputTokens: 5, outputTokens: 5, totalTokens: 10 },
+            toolCalls: [
+              { id: "c1", name: "updateLead", arguments: { urgency: "HIGH", postcode: "RG1 4AB" } },
+              { id: "c2", name: "calculateLeadScore", arguments: {} },
+            ],
+          };
+        }
+        return {
+          text: "Thanks — noted your postcode. A boiler repair starts at £90.",
+          model: "fake-model",
+          usage: { inputTokens: 8, outputTokens: 12, totalTokens: 20 },
+        };
+      },
+    };
+
+    const result = await runLeadAgent(conversationId, { provider });
+
+    expect(result.status).toBe("replied");
+    expect(calls).toBe(2); // one tool round, then the final answer
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: conversationId },
+    });
+    const lead = await prisma.lead.findUniqueOrThrow({
+      where: { id: conversation.leadId as string },
+    });
+    expect(lead.urgency).toBe("HIGH");
+    expect(lead.postcode).toBe("RG1 4AB");
+    expect(lead.leadScore).not.toBeNull();
+
+    // Every tool the model asked for is recorded (§16 ledger).
+    const ledger = await prisma.aiToolCall.findMany({ where: { conversationId } });
+    expect(ledger.map((row) => row.tool).sort()).toEqual(["calculateLeadScore", "updateLead"]);
+    expect(ledger.every((row) => row.status === "OK")).toBe(true);
+  });
+
+  it("stops and stores no reply after a handoff to a human", async () => {
+    const conversationId = await makeConversation("AI_ACTIVE", "Can I speak to a person?");
+
+    const provider: AiProvider = {
+      name: "fake-handoff",
+      async complete() {
+        return {
+          text: "",
+          model: "fake-model",
+          usage: { inputTokens: 4, outputTokens: 4, totalTokens: 8 },
+          toolCalls: [
+            { id: "c1", name: "handoffToHuman", arguments: { reason: "asked for a person" } },
+          ],
+        };
+      },
+    };
+
+    const result = await runLeadAgent(conversationId, { provider });
+
+    expect(result.status).toBe("skipped");
+    expect(result.reason).toBe("handoff_requested");
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: conversationId },
+    });
+    expect(conversation.status).toBe("HUMAN_REQUESTED");
+    expect(
+      await prisma.message.count({ where: { conversationId, sender: "AI" } }),
+    ).toBe(0);
+  });
 });

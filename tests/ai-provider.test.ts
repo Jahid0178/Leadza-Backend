@@ -5,7 +5,10 @@ import {
   resolveAiProviderKind,
 } from "../src/agents/provider";
 import { createOpenAiCompatibleProvider } from "../src/agents/providers/openai-compatible";
-import { createOpenRouterProvider } from "../src/agents/providers/openrouter";
+import {
+  createOpenRouterProvider,
+  type OpenRouterChatRequest,
+} from "../src/agents/providers/openrouter";
 
 /**
  * Provider unit tests (IMPLEMENTATION_PLAN step 20).
@@ -32,6 +35,13 @@ const config = {
 const request = {
   system: "You are the assistant.",
   messages: [{ role: "user" as const, content: "Hello" }],
+};
+
+const openRouterConfig = {
+  apiKey: "sk-or-test",
+  model: "nvidia/nemotron-3.5-super-vl:free",
+  maxOutputTokens: 600,
+  temperature: 0.3,
 };
 
 describe("createOpenAiCompatibleProvider", () => {
@@ -112,13 +122,6 @@ describe("createOpenAiCompatibleProvider", () => {
 });
 
 describe("createOpenRouterProvider", () => {
-  const openRouterConfig = {
-    apiKey: "sk-or-test",
-    model: "nvidia/nemotron-3.5-super-vl:free",
-    maxOutputTokens: 600,
-    temperature: 0.3,
-  };
-
   it("sends system + turns and parses text, model and usage (camelCase)", async () => {
     let sentModel = "";
     let sentMessages: unknown;
@@ -214,6 +217,154 @@ describe("resolveAiProviderKind", () => {
       "openrouter",
     );
     expect(resolveAiProviderKind(withKeys({ provider: "openrouter" }))).toBe("disabled");
+  });
+});
+
+describe("tool calling", () => {
+  it("openai-compatible: sends tools and parses tool calls with empty text", async () => {
+    let sentBody!: { tools?: Array<{ function: { name: string } }>; tool_choice?: string };
+    const provider = createOpenAiCompatibleProvider({
+      ...config,
+      fetchImpl: async (_url, init) => {
+        sentBody = JSON.parse(String(init?.body));
+        return jsonResponse({
+          model: "gpt-4o-mini",
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: "call_1",
+                    type: "function",
+                    function: { name: "getBusinessInfo", arguments: "{}" },
+                  },
+                ],
+              },
+            },
+          ],
+          usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+        });
+      },
+    });
+
+    const result = await provider.complete({
+      ...request,
+      tools: [{ name: "getBusinessInfo", description: "profile", parameters: { type: "object" } }],
+    });
+
+    expect(result?.text).toBe("");
+    expect(result?.toolCalls).toEqual([
+      { id: "call_1", name: "getBusinessInfo", arguments: "{}" },
+    ]);
+    expect(sentBody?.tools?.[0]?.function.name).toBe("getBusinessInfo");
+    expect(sentBody?.tool_choice).toBe("auto");
+  });
+
+  it("openai-compatible: maps assistant tool calls and tool results into the request", async () => {
+    let sentBody!: { messages: Array<Record<string, unknown>> };
+    const provider = createOpenAiCompatibleProvider({
+      ...config,
+      fetchImpl: async (_url, init) => {
+        sentBody = JSON.parse(String(init?.body));
+        return jsonResponse({ choices: [{ message: { content: "Done." } }] });
+      },
+    });
+
+    await provider.complete({
+      ...request,
+      messages: [
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "call_1", name: "updateLead", arguments: { urgency: "HIGH" } }],
+        },
+        { role: "tool", toolCallId: "call_1", content: '{"ok":true}' },
+      ],
+    });
+
+    const assistant = sentBody.messages[2] as {
+      tool_calls: Array<{ function: { name: string; arguments: string } }>;
+    };
+    expect(assistant.tool_calls[0]?.function.name).toBe("updateLead");
+    expect(assistant.tool_calls[0]?.function.arguments).toBe('{"urgency":"HIGH"}');
+    expect(sentBody.messages[3]).toEqual({
+      role: "tool",
+      tool_call_id: "call_1",
+      content: '{"ok":true}',
+    });
+  });
+
+  it("openrouter: forwards tools and parses SDK tool calls", async () => {
+    let sent!: OpenRouterChatRequest;
+    const provider = createOpenRouterProvider({
+      ...openRouterConfig,
+      send: async (request) => {
+        sent = request;
+        return {
+          choices: [
+            {
+              message: {
+                content: null,
+                toolCalls: [
+                  {
+                    id: "call_9",
+                    function: { name: "checkServiceArea", arguments: '{"postcode":"RG1"}' },
+                  },
+                ],
+              },
+            },
+          ],
+        };
+      },
+    });
+
+    const result = await provider.complete({
+      ...request,
+      tools: [{ name: "checkServiceArea", description: "coverage", parameters: { type: "object" } }],
+    });
+
+    expect(result?.text).toBe("");
+    expect(result?.toolCalls).toEqual([
+      { id: "call_9", name: "checkServiceArea", arguments: '{"postcode":"RG1"}' },
+    ]);
+    expect(sent.tools?.[0]?.name).toBe("checkServiceArea");
+    expect(sent.toolChoice).toBe("auto");
+  });
+
+  it("openrouter: maps assistant tool calls and tool results into the transport request", async () => {
+    let sent!: OpenRouterChatRequest;
+    const provider = createOpenRouterProvider({
+      ...openRouterConfig,
+      send: async (request) => {
+        sent = request;
+        return { choices: [{ message: { content: "Done." } }] };
+      },
+    });
+
+    await provider.complete({
+      ...request,
+      messages: [
+        { role: "user", content: "hi" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "call_1", name: "getServiceDetails", arguments: {} }],
+        },
+        { role: "tool", toolCallId: "call_1", content: '{"ok":true}' },
+      ],
+    });
+
+    const assistant = sent.messages[2]!;
+    expect(assistant.role).toBe("assistant");
+    expect(assistant.toolCalls?.[0]?.name).toBe("getServiceDetails");
+    expect(assistant.toolCalls?.[0]?.arguments).toEqual({});
+    expect(sent.messages[3]).toEqual({
+      role: "tool",
+      toolCallId: "call_1",
+      content: '{"ok":true}',
+    });
   });
 });
 

@@ -1,9 +1,11 @@
 import { logger } from "../../utils/logger";
 import {
   AiProviderError,
+  type AiChatMessage,
   type AiCompletion,
   type AiCompletionRequest,
   type AiProvider,
+  type AiToolCall,
   type AiUsage,
 } from "../provider";
 
@@ -35,12 +37,65 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 /** Raw shape we read from the response (everything else is ignored). */
 interface RawCompletion {
   model?: unknown;
-  choices?: Array<{ message?: { content?: unknown } }>;
+  choices?: Array<{
+    message?: {
+      content?: unknown;
+      tool_calls?: Array<{
+        id?: unknown;
+        function?: { name?: unknown; arguments?: unknown };
+      }>;
+    };
+  }>;
   usage?: {
     prompt_tokens?: unknown;
     completion_tokens?: unknown;
     total_tokens?: unknown;
   };
+}
+
+/** Tool-call arguments travel as a JSON string; keep strings as-is. */
+function toArgumentsString(args: unknown): string {
+  return typeof args === "string" ? args : JSON.stringify(args ?? {});
+}
+
+/** Map our chat turn onto OpenAI's message shape (incl. tool calling). */
+function toOpenAiMessage(message: AiChatMessage): Record<string, unknown> {
+  if (message.role === "assistant") {
+    return {
+      role: "assistant",
+      content: message.content,
+      ...(message.toolCalls?.length
+        ? {
+            tool_calls: message.toolCalls.map((call) => ({
+              id: call.id,
+              type: "function",
+              function: { name: call.name, arguments: toArgumentsString(call.arguments) },
+            })),
+          }
+        : {}),
+    };
+  }
+  if (message.role === "tool") {
+    return {
+      role: "tool",
+      tool_call_id: message.toolCallId ?? "",
+      content: message.content,
+    };
+  }
+  return { role: message.role, content: message.content };
+}
+
+/** Read tool calls out of the response, dropping nameless entries. */
+function parseToolCalls(raw: RawCompletion["choices"]): AiToolCall[] {
+  const calls = raw?.[0]?.message?.tool_calls;
+  if (!Array.isArray(calls)) return [];
+  return calls
+    .map((call) => ({
+      id: typeof call.id === "string" ? call.id : "",
+      name: typeof call.function?.name === "string" ? call.function.name : "",
+      arguments: call.function?.arguments,
+    }))
+    .filter((call) => call.name.length > 0);
 }
 
 /** Coerce a token count to a non-negative integer. */
@@ -75,12 +130,27 @@ export function createOpenAiCompatibleProvider(
       const maxOutputTokens = request.maxOutputTokens ?? config.maxOutputTokens;
       const temperature = request.temperature ?? config.temperature;
 
-      const body = JSON.stringify({
+      const requestBody: Record<string, unknown> = {
         model: config.model,
-        messages: [{ role: "system", content: request.system }, ...request.messages],
+        messages: [
+          { role: "system", content: request.system },
+          ...request.messages.map(toOpenAiMessage),
+        ],
         max_tokens: maxOutputTokens,
         temperature,
-      });
+      };
+      if (request.tools && request.tools.length > 0) {
+        requestBody.tools = request.tools.map((tool) => ({
+          type: "function",
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+          },
+        }));
+        requestBody.tool_choice = request.toolChoice ?? "auto";
+      }
+      const body = JSON.stringify(requestBody);
 
       let response: Response;
       try {
@@ -116,19 +186,22 @@ export function createOpenAiCompatibleProvider(
       }
 
       const payload = (await response.json().catch(() => null)) as RawCompletion | null;
-      const text = payload?.choices?.[0]?.message?.content;
-      if (typeof text !== "string" || text.trim().length === 0) {
+      const rawContent = payload?.choices?.[0]?.message?.content;
+      const text = typeof rawContent === "string" ? rawContent.trim() : "";
+      const toolCalls = parseToolCalls(payload?.choices);
+      // A turn is valid if it says something OR asks for tools.
+      if (text.length === 0 && toolCalls.length === 0) {
         throw new AiProviderError(
           "AI provider returned no message content",
           "openai-compatible",
         );
       }
 
-      const trimmed = text.trim();
       return {
-        text: trimmed,
+        text,
         model: typeof payload?.model === "string" ? payload.model : config.model,
-        usage: parseUsage(payload?.usage, trimmed),
+        usage: parseUsage(payload?.usage, text),
+        ...(toolCalls.length > 0 ? { toolCalls } : {}),
       };
     },
   };
