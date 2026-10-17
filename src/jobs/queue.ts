@@ -42,6 +42,8 @@ function sleep(ms: number): Promise<void> {
 export class JobQueue<T> {
   private readonly items: Array<QueueItem<T>> = [];
   private readonly activeKeys = new Set<string>();
+  /** A follow-up run requested for a key that is already queued or running. */
+  private readonly rerun = new Map<string, T>();
   private readonly waiters: Array<() => void> = [];
   private readonly options: Required<Pick<JobQueueOptions<T>, "concurrency" | "maxAttempts" | "retryDelayMs">> &
     JobQueueOptions<T>;
@@ -80,6 +82,21 @@ export class JobQueue<T> {
     return true;
   }
 
+  /**
+   * Add a job, or — when its key is already queued or running — remember it and
+   * run it once more after the current run finishes. Unlike `enqueue`, a
+   * duplicate never vanishes: a customer message that lands while the agent is
+   * answering still gets a reply instead of being swallowed (§24).
+   */
+  enqueueLatest(payload: T): boolean {
+    const key = this.options.keyOf(payload);
+    if (this.activeKeys.has(key)) {
+      this.rerun.set(key, payload);
+      return false;
+    }
+    return this.enqueue(payload);
+  }
+
   /** Begin processing. Enqueued jobs wait until this is called. */
   start(): void {
     if (this.running) return;
@@ -92,6 +109,7 @@ export class JobQueue<T> {
   stop(): void {
     this.running = false;
     this.items.length = 0;
+    this.rerun.clear();
     this.settleWaiters();
     logger.info({ job: this.options.name }, "job queue stopped");
   }
@@ -126,10 +144,24 @@ export class JobQueue<T> {
       void this.run(item).finally(() => {
         this.active -= 1;
         this.activeKeys.delete(item.key);
+        this.scheduleRerun(item.key);
         this.pump();
         this.settleWaiters();
       });
     }
+  }
+
+  /**
+   * If a follow-up run was requested while `key` was busy, queue it now. The
+   * key is re-marked active before the item is pushed so a concurrent
+   * `enqueueLatest` still coalesces into one more run rather than two.
+   */
+  private scheduleRerun(key: string): void {
+    const payload = this.rerun.get(key);
+    if (payload === undefined) return;
+    this.rerun.delete(key);
+    this.activeKeys.add(key);
+    this.items.push({ payload, key });
   }
 
   private async run(item: QueueItem<T>): Promise<void> {

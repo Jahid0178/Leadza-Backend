@@ -33,9 +33,12 @@ const queue = new JobQueue<string>({
 
 /** Queue the agent to answer the latest customer message in a conversation. */
 export function enqueueAiReply(conversationId: string): void {
-  const accepted = queue.enqueue(conversationId);
+  const accepted = queue.enqueueLatest(conversationId);
   if (!accepted) {
-    logger.debug({ conversationId }, "AI reply already queued or running");
+    logger.debug(
+      { conversationId },
+      "AI reply already running — scheduled a follow-up run",
+    );
   }
 }
 

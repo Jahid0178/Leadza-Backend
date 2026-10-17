@@ -354,6 +354,11 @@ model Conversation {
   status       ConversationStatus  @default(AI_ACTIVE)
   /// Staff member who took the thread over (FEATURES §31 "Assigned staff").
   assignedToId String?
+  /// Public chat access token (FEATURES §22, IMPLEMENTATION_PLAN step 19).
+  /// Set only for conversations started from the website chat widget; the
+  /// widget proves ownership of its thread with this opaque value so no other
+  /// visitor can read it, and it is never the guessable conversation id.
+  publicToken  String?             @unique
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 

@@ -1,5 +1,7 @@
 import type { ConversationChannel } from "../../generated/prisma/client";
 import { prisma } from "../lib/prisma";
+import { publishMessageCreated } from "../realtime/hub";
+import { clearTyping, setTyping } from "../realtime/typing";
 import { logger } from "../utils/logger";
 import { loadAgentContext } from "./context";
 import { enforceGuardrails, type GuardrailViolation } from "./guardrails";
@@ -99,6 +101,9 @@ export async function runLeadAgent(
   let completion: AiCompletion | null = null;
   let handoffRequested = false;
 
+  // Show "AI is typing…" on the widget and dashboard while the model works.
+  // Cleared in the `finally`, whatever this run does (§22).
+  setTyping(context.conversation.businessId, conversationId, "AI");
   try {
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
       completion = await provider.complete({ system, messages, tools });
@@ -127,6 +132,8 @@ export async function runLeadAgent(
       "AI provider call failed",
     );
     return { status: "failed", reason: "provider_error", provider: provider.name };
+  } finally {
+    clearTyping(context.conversation.businessId, conversationId, "AI");
   }
 
   if (!completion) {
@@ -207,6 +214,10 @@ export async function runLeadAgent(
   if (!saved) {
     return { status: "skipped", reason: "taken_over", provider: provider.name };
   }
+
+  // The reply is now stored — push it to any dashboard with this thread open
+  // (the widget keeps polling, §38).
+  publishMessageCreated(context.conversation.businessId, saved);
 
   // 4. Per-call usage/cost log (§49 — persisted in step 32).
   const estimatedCostUsd = estimateCostUsd(completion.model, completion.usage);

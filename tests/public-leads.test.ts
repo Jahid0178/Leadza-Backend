@@ -142,6 +142,18 @@ describe("public lead capture (§21, step 18)", () => {
     expect(conversation).toBeTruthy();
     expect(conversation.channel).toBe("WEBSITE");
     expect(conversation.status).toBe("AI_ACTIVE");
+
+    // The enquiry itself is the thread's first message. Without a Message row
+    // the dashboard thread rendered empty and the agent saw "no customer
+    // message" and stayed silent — the enquiry was invisible on both sides.
+    const detail = await request(app)
+      .get(`/api/v1/conversations/${res.body.data.conversation.id}`)
+      .set("Cookie", owner.cookie);
+    expect(detail.status).toBe(200);
+    const [firstMessage] = detail.body.data.conversation.messages;
+    expect(detail.body.data.conversation.messages).toHaveLength(1);
+    expect(firstMessage.sender).toBe("CUSTOMER");
+    expect(firstMessage.content).toBe(enquiry().message);
   });
 
   it("links an active service by name and ignores unknown names", async () => {

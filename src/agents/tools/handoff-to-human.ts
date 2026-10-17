@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
+import { publishConversationUpdated } from "../../realtime/hub";
 import {
   canTransitionConversation,
   type ConversationStatus,
@@ -33,7 +34,12 @@ export const handoffToHumanTool = defineTool({
   async handle(ctx) {
     const conversation = await prisma.conversation.findUnique({
       where: { id: ctx.conversationId },
-      select: { id: true, businessId: true, status: true },
+      select: {
+        id: true,
+        businessId: true,
+        status: true,
+        assignedToId: true,
+      },
     });
     if (!conversation || conversation.businessId !== ctx.businessId) {
       return { ok: false, error: "Conversation not found." };
@@ -58,6 +64,14 @@ export const handoffToHumanTool = defineTool({
       where: { id: conversation.id },
       data: { status: "HUMAN_REQUESTED" },
     });
+
+    // Staff watching the dashboard see the handover request immediately (§38).
+    publishConversationUpdated(
+      conversation.businessId,
+      conversation.id,
+      "HUMAN_REQUESTED",
+      conversation.assignedToId,
+    );
 
     return { ok: true, data: { status: "HUMAN_REQUESTED" } };
   },

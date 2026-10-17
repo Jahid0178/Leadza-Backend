@@ -49,6 +49,61 @@ function normalizePlace(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/**
+ * Words that cannot identify a place on their own. A stored area labelled
+ * "Savar Service Area" and a customer who says "Savar, near the bus stand"
+ * should still match, so filler words are ignored when comparing tokens.
+ */
+const PLACE_STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "of", "in", "on", "at", "by", "to",
+  "near", "next", "opposite", "behind", "beside", "between",
+  "area", "town", "city", "village", "district", "region", "county", "suburb",
+  "service", "services", "coverage", "covered", "zone",
+  "road", "street", "lane", "avenue", "close", "drive", "way", "place",
+  "bus", "stop", "stand", "station", "market", "centre", "center",
+  "postcode", "postal", "code",
+]);
+
+/** A shared token must be at least this long to count as a place match. */
+const MIN_SHARED_TOKEN_LENGTH = 4;
+
+/** Lowercased words of a place, punctuation treated as whitespace. */
+function placeTokens(value: string): string[] {
+  return normalizePlace(value)
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 0);
+}
+
+/** Place tokens with the generic filler words removed. */
+function significantPlaceTokens(value: string): string[] {
+  const tokens = placeTokens(value).filter((token) => !PLACE_STOPWORDS.has(token));
+  // Everything was generic ("town") — fall back so an exact match still works.
+  return tokens.length > 0 ? tokens : placeTokens(value);
+}
+
+/**
+ * Place-name match, tolerant of the way people write locations.
+ *
+ * Exact equality first; failing that, a shared *significant* token must carry
+ * the match — so "Savar" finds a stored "Savar Service Area", and "Savar, near
+ * the bus stand" finds "Savar Dhaka town", while "Bathgate" still does not
+ * match "Bath" (tokens are compared whole) and a query of pure filler ("the
+ * town") matches nothing. Postcodes are handled separately and never compared
+ * as places.
+ */
+function placeMatches(storedValue: string, wanted: string): boolean {
+  const stored = normalizePlace(storedValue);
+  const query = normalizePlace(wanted);
+  if (stored === query) return true;
+
+  const storedTokens = new Set(significantPlaceTokens(stored));
+  return significantPlaceTokens(query).some(
+    (token) =>
+      token.length >= MIN_SHARED_TOKEN_LENGTH && storedTokens.has(token),
+  );
+}
+
 /** Great-circle distance in kilometers. */
 function haversineKm(
   lat1: number,
@@ -99,14 +154,14 @@ export async function checkServiceArea(
     }
   }
 
-  // 2. Place name: normalized equality against value or label.
+  // 2. Place name: tolerant match against value or label, so "Savar" matches a
+  // stored "Savar Dhaka town" and "Savar, near the bus stand" matches too.
   const place = query.place?.trim();
   if (place) {
-    const wanted = normalizePlace(place);
     const match = areas.find(
       (area) =>
-        normalizePlace(area.value) === wanted ||
-        (area.label !== null && normalizePlace(area.label) === wanted),
+        placeMatches(area.value, place) ||
+        (area.label !== null && placeMatches(area.label, place)),
     );
     if (match) {
       return { inArea: true, matchedAreaId: match.id, matchedOn: "place" };

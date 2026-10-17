@@ -8,6 +8,11 @@ import type {
   MessageSender,
 } from "../validation/conversation.schemas";
 import { prisma } from "../lib/prisma";
+import {
+  publishConversationCreated,
+  publishConversationUpdated,
+  publishMessageCreated,
+} from "../realtime/hub";
 import { findMembership } from "./membership.repository";
 import {
   canTransitionConversation,
@@ -269,6 +274,9 @@ export async function createConversationForUser(
     },
   });
 
+  // A new thread must appear in every open dashboard (§38).
+  publishConversationCreated(input.businessId, conversation.id);
+
   const [withRel] = await withRelations([conversation]);
   return withRel ? { ...withRel, role: membership.role } : null;
 }
@@ -309,6 +317,13 @@ export async function changeConversationStatusForUser(
     data: { status: to },
   });
 
+  publishConversationUpdated(
+    conversation.businessId,
+    conversationId,
+    to,
+    updated.assignedToId,
+  );
+
   const [withRel] = await withRelations([updated]);
   if (!withRel) return { ok: false, reason: "not_found" };
   return { ok: true, conversation: { ...withRel, role: membership.role } };
@@ -346,6 +361,15 @@ export async function appendMessageForUser(
     where: { id: conversationId },
     data: { status: "HUMAN_ACTIVE", assignedToId: userId },
   });
+
+  // The thread is live for every other dashboard too (§38).
+  publishMessageCreated(conversation.businessId, message);
+  publishConversationUpdated(
+    conversation.businessId,
+    conversationId,
+    "HUMAN_ACTIVE",
+    userId,
+  );
 
   const [withRel] = await withRelations([updated]);
   if (!withRel) return null;

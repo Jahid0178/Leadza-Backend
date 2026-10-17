@@ -64,6 +64,34 @@ describe("JobQueue", () => {
     queue.stop();
   });
 
+  it("coalesces a duplicate into one follow-up run when its key is busy", async () => {
+    let runs = 0;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queue = new JobQueue<string>({
+      name: "test-rerun",
+      keyOf: (key) => key,
+      handler: async () => {
+        runs += 1;
+        if (runs === 1) await gate;
+      },
+    });
+
+    queue.start();
+    expect(queue.enqueueLatest("conversation-1")).toBe(true);
+    // The first run is now blocked; a burst of newer messages must not vanish,
+    // but must not spawn one run each either.
+    expect(queue.enqueueLatest("conversation-1")).toBe(false);
+    expect(queue.enqueueLatest("conversation-1")).toBe(false);
+
+    release();
+    await queue.drain();
+    expect(runs).toBe(2);
+    queue.stop();
+  });
+
   it("retries a failing job and succeeds", async () => {
     let attempts = 0;
     const queue = new JobQueue<number>({

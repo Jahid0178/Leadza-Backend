@@ -62,6 +62,17 @@ export const appendMessageSchema = z
 export type AppendMessageInput = z.infer<typeof appendMessageSchema>;
 
 /**
+ * POST /api/v1/conversations/:id/typing — a staff member is (or is no longer)
+ * typing. Purely ephemeral UI state: the backend only flags it, nothing is
+ * stored, so a lost ping is harmless (§22).
+ */
+export const conversationTypingSchema = z
+  .object({ active: z.boolean().optional() })
+  .strict();
+
+export type ConversationTypingInput = z.infer<typeof conversationTypingSchema>;
+
+/**
  * GET /api/v1/conversations — list query (§31: filter by AI/human status,
  * channel, assignee, plus search and pagination).
  */

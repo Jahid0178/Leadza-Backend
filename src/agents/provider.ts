@@ -146,6 +146,22 @@ export function resolveAiProviderKind(selection: AiProviderSelection): AiProvide
 }
 
 /**
+ * Whether any AI provider is configured. The website chat widget uses this to
+ * decide between the conversational UI and the plain enquiry form, so a
+ * business with no key set still gets a working form instead of a dead chat
+ * (FEATURES §22 "optional conversational widget").
+ */
+export function isAiConfigured(): boolean {
+  return (
+    resolveAiProviderKind({
+      provider: env.AI_PROVIDER,
+      hasOpenRouterKey: Boolean(env.OPENROUTER_API_KEY),
+      hasGenericKey: Boolean(env.AI_API_KEY),
+    }) !== "disabled"
+  );
+}
+
+/**
  * Resolve the provider from the environment (agent.md §31: never hardcode
  * secrets). `auto` prefers OpenRouter when its key is present, then the
  * OpenAI-compatible provider, and falls back to the disabled provider.
