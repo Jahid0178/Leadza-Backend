@@ -114,6 +114,15 @@ enum MessageSender {
   SYSTEM
 }
 
+/// Outcome of one AI tool call (IMPLEMENTATION_PLAN step 21 ledger).
+/// DENIED = the backend refused it (unknown tool, bad args, another tenant's
+/// resource); ERROR = the handler itself threw.
+enum AiToolCallStatus {
+  OK
+  DENIED
+  ERROR
+}
+
 model User {
   id             String       @id @default(cuid())
   email          String       @unique
@@ -165,6 +174,7 @@ model Business {
   customers Customer[]
   leads     Lead[]
   conversations Conversation[]
+  aiToolCalls AiToolCall[]
 
   @@map("businesses")
 }
@@ -301,6 +311,7 @@ model Lead {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   service  Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   conversations Conversation[]
+  aiToolCalls AiToolCall[]
 
   @@index([businessId])
   @@index([businessId, status])
@@ -343,6 +354,11 @@ model Conversation {
   status       ConversationStatus  @default(AI_ACTIVE)
   /// Staff member who took the thread over (FEATURES §31 "Assigned staff").
   assignedToId String?
+  /// Public chat access token (FEATURES §22, IMPLEMENTATION_PLAN step 19).
+  /// Set only for conversations started from the website chat widget; the
+  /// widget proves ownership of its thread with this opaque value so no other
+  /// visitor can read it, and it is never the guessable conversation id.
+  publicToken  String?             @unique
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 
@@ -351,6 +367,7 @@ model Conversation {
   lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
   assignedTo User?     @relation("ConversationAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   messages   Message[]
+  aiToolCalls AiToolCall[]
 
   @@index([businessId])
   @@index([businessId, status])
@@ -377,4 +394,36 @@ model Message {
 
   @@index([conversationId])
   @@map("messages")
+}
+
+/// Debug ledger for AI tool calls (IMPLEMENTATION_PLAN step 21, agent.md §16).
+/// Every tool the agent invokes is recorded with its arguments, the safe
+/// result (or error) and the outcome, so a bad reply can be traced back to the
+/// backend decision that produced it. The model never writes here directly —
+/// only the tool executor does, through the backend's own validation.
+model AiToolCall {
+  id             String           @id @default(cuid())
+  businessId     String
+  conversationId String
+  /// Null when the conversation has no linked lead (or the tool targets none).
+  leadId         String?
+  /// Tool name, e.g. "updateLead".
+  tool           String
+  status         AiToolCallStatus
+  /// Arguments the model supplied (parsed from its JSON), recorded for debug.
+  arguments      Json?
+  /// Safe, model-facing result payload.
+  result         Json?
+  /// Safe error message when status is DENIED or ERROR.
+  error          String?
+  createdAt      DateTime         @default(now())
+
+  business     Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  lead         Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([conversationId])
+  @@index([tool])
+  @@map("ai_tool_calls")
 }

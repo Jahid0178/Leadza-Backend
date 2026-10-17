@@ -1,4 +1,8 @@
 import { prisma } from "../lib/prisma";
+import {
+  publishConversationCreated,
+  publishMessageCreated,
+} from "../realtime/hub";
 import { findCustomerByIdentity } from "./customer.repository";
 import type {
   PublicLeadInput,
@@ -105,7 +109,7 @@ export async function capturePublicLead(
       null;
   }
 
-  const { lead, conversation } = await prisma.$transaction(async (tx) => {
+  const { lead, conversation, message } = await prisma.$transaction(async (tx) => {
     const lead = await tx.lead.create({
       data: {
         businessId: business.id,
@@ -126,8 +130,24 @@ export async function capturePublicLead(
         channel: "WEBSITE",
       },
     });
-    return { lead, conversation };
+    // The enquiry itself is the thread's first message. Without it the
+    // dashboard thread renders empty and the agent sees "no customer message"
+    // and stays silent — the enquiry would be invisible on both sides (§20).
+    const message = await tx.message.create({
+      data: {
+        conversationId: conversation.id,
+        sender: "CUSTOMER",
+        content: input.message,
+        channel: "WEBSITE",
+      },
+    });
+    return { lead, conversation, message };
   });
+
+  // A new enquiry thread plus its first message, live for every open
+  // dashboard (§38).
+  publishConversationCreated(business.id, conversation.id);
+  publishMessageCreated(business.id, message);
 
   return {
     ok: true,

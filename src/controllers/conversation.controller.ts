@@ -9,10 +9,12 @@ import {
 } from "../repositories/conversation.repository";
 import { ApiError } from "../utils/api-error";
 import { apiSuccess } from "../utils/api-response";
+import { clearTyping, setTyping } from "../realtime/typing";
 import { parseAfterAuth, requireMembership } from "../utils/business-access";
 import {
   appendMessageSchema,
   changeConversationStatusSchema,
+  conversationTypingSchema,
   createConversationSchema,
   listConversationsQuerySchema,
 } from "../validation/conversation.schemas";
@@ -178,4 +180,29 @@ export async function appendMessage(req: Request, res: Response) {
   res
     .status(201)
     .json(apiSuccess({ message: result.message, conversation: result.conversation }));
+}
+
+/**
+ * POST /api/v1/conversations/:conversationId/typing — a staff member started or
+ * stopped typing (§22). Nothing is stored; the flag is broadcast to the
+ * business's dashboards and, for the visitor, read back on their next poll.
+ * Returns 204 either way so the client never retries on a no-op.
+ */
+export async function setConversationTyping(req: Request, res: Response) {
+  const userId = requireUserId(req);
+
+  const existing = await findConversationForUser(userId, conversationIdParam(req));
+  if (!existing) {
+    throw ApiError.notFound("NOT_FOUND", "The requested resource was not found.");
+  }
+
+  const input = parseAfterAuth(conversationTypingSchema, req.body ?? {});
+
+  if (input.active === false) {
+    clearTyping(existing.businessId, existing.id, "HUMAN");
+  } else {
+    setTyping(existing.businessId, existing.id, "HUMAN");
+  }
+
+  res.status(204).end();
 }

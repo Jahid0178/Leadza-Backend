@@ -25,7 +25,12 @@ export function createApp() {
   // middleware), and the installed cors build has no function-origin
   // support to express both policies in one instance.
   app.use((req, res, next) => {
-    if (req.path.startsWith("/api/v1/leads/public")) {
+    // Both public embed routers (§21 lead form, §22 chat) answer CORS
+    // themselves with a reflected origin and no credentials.
+    if (
+      req.path.startsWith("/api/v1/leads/public") ||
+      req.path.startsWith("/api/v1/chat/public")
+    ) {
       next();
       return;
     }

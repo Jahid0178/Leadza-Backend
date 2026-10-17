@@ -32,4 +32,7 @@ router.patch("/:conversationId/status", conversationController.changeConversatio
 /** POST /api/v1/conversations/:conversationId/messages — staff reply (§32). */
 router.post("/:conversationId/messages", conversationController.appendMessage);
 
+/** POST /api/v1/conversations/:conversationId/typing — "I'm typing…" (§22). */
+router.post("/:conversationId/typing", conversationController.setConversationTyping);
+
 export default router;
