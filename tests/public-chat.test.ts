@@ -64,6 +64,18 @@ beforeAll(async () => {
     where: { id: suspendedBusinessId },
     data: { status: "SUSPENDED" },
   });
+
+  // Services for the widget's select: one active, one archived in the primary
+  // business, and one active in another tenant (§13 — must never be linked).
+  await prisma.service.create({
+    data: { businessId, name: "Boiler Repair", price: 90, priceType: "FROM", active: true },
+  });
+  await prisma.service.create({
+    data: { businessId, name: "Retired Callouts", price: 20, priceType: "FROM", active: false },
+  });
+  await prisma.service.create({
+    data: { businessId: otherBusinessId, name: "Foreign Service", price: 30, priceType: "FROM", active: true },
+  });
 }, 60000);
 
 afterAll(async () => {
@@ -301,6 +313,104 @@ describe("chat polling (§22)", () => {
   });
 });
 
+describe("qualification fields with the first message (§15, §17)", () => {
+  it("lists the business's active services for the widget select (no prices, §25)", async () => {
+    const res = await request(app).get(`/api/v1/chat/public/${businessId}/status`);
+    expect(res.status).toBe(200);
+    const services = res.body.data.services as Array<{ id: string; name: string }>;
+    expect(services.map((service) => service.name)).toContain("Boiler Repair");
+    expect(services.map((service) => service.name)).not.toContain("Retired Callouts");
+    for (const service of services) {
+      expect(Object.keys(service).sort()).toEqual(["id", "name"]);
+    }
+  });
+
+  it("stores service, urgency and preferred date from the start form", async () => {
+    const service = await prisma.service.findFirstOrThrow({
+      where: { businessId, name: "Boiler Repair" },
+    });
+    const res = await request(app)
+      .post(`/api/v1/chat/public/${businessId}`)
+      .send({
+        message: "The boiler pressure keeps dropping — can someone come soon?",
+        name: "Priya Shah",
+        phone: "07700 900444",
+        serviceId: service.id,
+        urgency: "HIGH",
+        preferredDate: "2026-11-04",
+      });
+    expect(res.status).toBe(201);
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: res.body.data.conversationId as string },
+      include: { lead: true },
+    });
+    expect(conversation.lead?.serviceId).toBe(service.id);
+    expect(conversation.lead?.urgency).toBe("HIGH");
+    expect(conversation.lead?.preferredDate?.toISOString().slice(0, 10)).toBe("2026-11-04");
+  });
+
+  it("ignores a service id from another business but keeps urgency (§13)", async () => {
+    const foreign = await prisma.service.findFirstOrThrow({
+      where: { businessId: otherBusinessId, name: "Foreign Service" },
+    });
+    const res = await request(app)
+      .post(`/api/v1/chat/public/${businessId}`)
+      .send({
+        message: "Something is broken in the kitchen sink.",
+        name: "Max Foster",
+        phone: "07700 900555",
+        serviceId: foreign.id,
+        urgency: "MEDIUM",
+      });
+    expect(res.status).toBe(201);
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: res.body.data.conversationId as string },
+      include: { lead: true },
+    });
+    expect(conversation.lead?.serviceId).toBeNull();
+    expect(conversation.lead?.urgency).toBe("MEDIUM");
+  });
+
+  it("rejects an urgency value outside the enum", async () => {
+    const res = await request(app)
+      .post(`/api/v1/chat/public/${businessId}`)
+      .send({
+        message: "Help please",
+        name: "Bad Urgency",
+        phone: "07700 900666",
+        urgency: "URGENT",
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("ignores qualification fields when continuing an existing thread", async () => {
+    const { conversationId, token } = await openThread(businessId, {
+      message: "The tap is dripping.",
+      phone: "07700 900888",
+    });
+    const res = await request(app)
+      .post(`/api/v1/chat/public/${businessId}`)
+      .set("x-chat-token", token)
+      .send({
+        conversationId,
+        message: "Still dripping, by the way.",
+        urgency: "LOW",
+        serviceId: "not-a-real-service",
+      });
+    expect(res.status).toBe(200);
+
+    const conversation = await prisma.conversation.findUniqueOrThrow({
+      where: { id: conversationId },
+      include: { lead: true },
+    });
+    expect(conversation.lead?.urgency).toBeNull();
+    expect(conversation.lead?.serviceId).toBeNull();
+  });
+});
+
 describe("widget script (§22, step 19)", () => {
   it("serves the widget with both chat and form fallback", async () => {
     const res = await request(app).get("/widget.js");
@@ -318,6 +428,10 @@ describe("widget script (§22, step 19)", () => {
     expect(WIDGET_SCRIPT).toContain('{ name: "name", type: "text", placeholder: "Your name *"');
     expect(WIDGET_SCRIPT).toContain('{ name: "phone", type: "tel"');
     expect(WIDGET_SCRIPT).toContain('{ name: "email", type: "email"');
+    // The qualification fields the visitor fills before starting (§17).
+    expect(WIDGET_SCRIPT).toContain('name: "serviceId"');
+    expect(WIDGET_SCRIPT).toContain('name: "urgency"');
+    expect(WIDGET_SCRIPT).toContain('name: "preferredDate"');
     // The chat composer is only reachable once the thread exists.
     expect(WIDGET_SCRIPT).toContain('setView("chat")');
   });

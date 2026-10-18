@@ -8,9 +8,10 @@
  *
  * The widget asks the backend whether the AI is available:
  * - AI on  → the visitor first shares a few details (name + phone or email +
- *   what they need), which starts the chat thread. Those details become the
- *   customer/lead record, so a chat always leaves the business something it can
- *   act on, and the AI continues qualifying inside the thread (§22);
+ *   what they need, plus optional service / urgency / preferred date), which
+ *   starts the chat thread. Those details become the customer/lead record, so
+ *   a chat always leaves the business something it can act on, and the AI
+ *   continues qualifying inside the thread (§22);
  * - AI off, or the chat endpoint failing → the plain enquiry form, so the
  *   business never loses a lead to a dead chat (§22).
  *
@@ -59,8 +60,8 @@ export const WIDGET_SCRIPT = `(function () {
     ".ldz-note{padding:6px 16px 0;color:#525252;font-size:12.5px}",
     ".ldz-link{align-self:flex-start;margin:8px 16px 14px;padding:0;border:0;background:none;color:#525252;font:inherit;font-size:12.5px;text-decoration:underline;cursor:pointer}",
     ".ldz-form{padding:12px 16px 16px;display:flex;flex-direction:column;gap:8px}",
-    ".ldz-form input,.ldz-form textarea{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #d4d4d4;border-radius:8px;font:14px/1.3 system-ui,-apple-system,sans-serif;color:#171717;background:#fff}",
-    ".ldz-form input:focus,.ldz-form textarea:focus{outline:2px solid #171717;outline-offset:1px;border-color:#171717}",
+    ".ldz-form input,.ldz-form select,.ldz-form textarea{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #d4d4d4;border-radius:8px;font:14px/1.3 system-ui,-apple-system,sans-serif;color:#171717;background:#fff}",
+    ".ldz-form input:focus,.ldz-form select:focus,.ldz-form textarea:focus{outline:2px solid #171717;outline-offset:1px;border-color:#171717}",
     ".ldz-form textarea{min-height:74px;resize:vertical}",
     ".ldz-hp{position:absolute!important;left:-9999px!important;top:auto!important;width:1px!important;height:1px!important;overflow:hidden!important}",
     ".ldz-submit{margin-top:2px;padding:10px 12px;border:0;border-radius:8px;background:#171717;color:#fff;font:600 14px/1 system-ui,-apple-system,sans-serif;cursor:pointer}",
@@ -122,6 +123,41 @@ export const WIDGET_SCRIPT = `(function () {
     return fallback;
   }
 
+  /* ---------- shared qualification fields (§15, §17) ---------- */
+
+  /** The blank first entry of a select — an optional field with no default. */
+  function setPlaceholder(select, label) {
+    var blank = el("option", { value: "" }, select);
+    blank.textContent = label;
+  }
+
+  /** Urgency values are the backend's enum; labels match the dashboard (§16). */
+  function fillUrgency(select) {
+    var options = [
+      ["", "How urgent? (optional)"],
+      ["LOW", "Low (no rush)"],
+      ["MEDIUM", "Medium (soon)"],
+      ["HIGH", "High (urgent)"],
+    ];
+    for (var i = 0; i < options.length; i++) {
+      var option = el("option", { value: options[i][0] }, select);
+      option.textContent = options[i][1];
+    }
+  }
+
+  /**
+   * Fill a service select from the business's active services (§10). The
+   * select stays hidden until the status call brings real options, so a
+   * business with no services simply shows none.
+   */
+  function fillServices(select, services) {
+    for (var i = 0; i < services.length; i++) {
+      var option = el("option", { value: services[i].id }, select);
+      option.textContent = services[i].name;
+    }
+    if (services.length) select.style.display = "";
+  }
+
   /* ---------- details view: identity before the chat starts ---------- */
 
   var detailsView = el("div", { class: "ldz-detailsview" }, panel);
@@ -135,6 +171,15 @@ export const WIDGET_SCRIPT = `(function () {
   el("input", { name: "name", type: "text", placeholder: "Your name *", required: "required", autocomplete: "name", maxlength: "120" }, detailsForm);
   el("input", { name: "phone", type: "tel", placeholder: "Phone", autocomplete: "tel", maxlength: "30" }, detailsForm);
   el("input", { name: "email", type: "email", placeholder: "Email", autocomplete: "email", maxlength: "254" }, detailsForm);
+  // Optional qualification (§15, §17): the service comes from the business's
+  // own list, plus urgency and a preferred date. The service select stays
+  // hidden until the status call fills it.
+  var detailsService = el("select", { name: "serviceId", "aria-label": "Service needed" }, detailsForm);
+  setPlaceholder(detailsService, "Service needed (optional)");
+  detailsService.style.display = "none";
+  var detailsUrgency = el("select", { name: "urgency", "aria-label": "How urgent is it?" }, detailsForm);
+  fillUrgency(detailsUrgency);
+  el("input", { name: "preferredDate", type: "date", "aria-label": "Preferred date (optional)", title: "Preferred date (optional)" }, detailsForm);
   el("textarea", { name: "message", placeholder: "What do you need help with? *", required: "required", maxlength: "4000" }, detailsForm);
   // Honeypot: invisible to people, tempting to bots (see backend).
   el("input", { class: "ldz-hp", name: "website", type: "text", tabindex: "-1", autocomplete: "off", "aria-hidden": "true" }, detailsForm);
@@ -180,7 +225,12 @@ export const WIDGET_SCRIPT = `(function () {
   el("input", { name: "name", type: "text", placeholder: "Your name *", required: "required", autocomplete: "name", maxlength: "120" }, form);
   el("input", { name: "phone", type: "tel", placeholder: "Phone", autocomplete: "tel", maxlength: "30" }, form);
   el("input", { name: "email", type: "email", placeholder: "Email", autocomplete: "email", maxlength: "254" }, form);
-  el("input", { name: "serviceName", type: "text", placeholder: "Service needed (optional)", maxlength: "120" }, form);
+  var formService = el("select", { name: "serviceId", "aria-label": "Service needed" }, form);
+  setPlaceholder(formService, "Service needed (optional)");
+  formService.style.display = "none";
+  var formUrgency = el("select", { name: "urgency", "aria-label": "How urgent is it?" }, form);
+  fillUrgency(formUrgency);
+  el("input", { name: "preferredDate", type: "date", "aria-label": "Preferred date (optional)", title: "Preferred date (optional)" }, form);
   el("input", { name: "postcode", type: "text", placeholder: "Postcode", autocomplete: "postal-code", maxlength: "12" }, form);
   el("textarea", { name: "message", placeholder: "What do you need help with? *", required: "required", maxlength: "4000" }, form);
   el("input", { class: "ldz-hp", name: "website", type: "text", tabindex: "-1", autocomplete: "off", "aria-hidden": "true" }, form);
@@ -264,7 +314,7 @@ export const WIDGET_SCRIPT = `(function () {
     event.preventDefault();
     setDetailsError("");
 
-    var data = collect(detailsForm, ["name", "phone", "email", "message", "website"]);
+    var data = collect(detailsForm, ["name", "phone", "email", "serviceId", "urgency", "preferredDate", "message", "website"]);
     if (!data.name) { setDetailsError("Please enter your name."); return; }
     if (!data.message) { setDetailsError("Please describe what you need help with."); return; }
     if (!data.phone && !data.email) { setDetailsError("Add a phone number or email so we can reply."); return; }
@@ -502,7 +552,7 @@ export const WIDGET_SCRIPT = `(function () {
     event.preventDefault();
     formError.style.display = "none";
 
-    var data = collect(form, ["name", "phone", "email", "serviceName", "postcode", "message", "website"]);
+    var data = collect(form, ["name", "phone", "email", "serviceId", "urgency", "preferredDate", "postcode", "message", "website"]);
     if (!data.name) { showFormError("Please enter your name."); return; }
     if (!data.message) { showFormError("Please describe what you need help with."); return; }
     if (!data.phone && !data.email) { showFormError("Add a phone number or email so we can reply."); return; }
@@ -539,16 +589,23 @@ export const WIDGET_SCRIPT = `(function () {
   setView("details");
   request(chatBase + "/status", {})
     .then(function (result) {
+      if (result.status === 200 && result.payload && result.payload.success) {
+        if (result.payload.data.businessName) {
+          chatHead.textContent = result.payload.data.businessName;
+          detailsHead.textContent = result.payload.data.businessName;
+        }
+        // Both views share the business's services for their select (§10) —
+        // the enquiry form needs it even when the AI is off.
+        var services = result.payload.data.services || [];
+        fillServices(detailsService, services);
+        fillServices(formService, services);
+      }
       if (
         result.status === 200 &&
         result.payload &&
         result.payload.success &&
         result.payload.data.aiEnabled
       ) {
-        if (result.payload.data.businessName) {
-          chatHead.textContent = result.payload.data.businessName;
-          detailsHead.textContent = result.payload.data.businessName;
-        }
         setView("details");
         return;
       }
