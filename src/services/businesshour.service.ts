@@ -20,8 +20,11 @@ const WEEKDAYS: Weekday[] = [
   "SUNDAY",
 ];
 
-/** Business timezone — UK trade businesses (single default for now). */
-const BUSINESS_TZ = "Europe/London";
+/** Business timezone fallback — UK trade businesses (single default for now). */
+const DEFAULT_BUSINESS_TZ = "Europe/London";
+
+/** Default timezone used when a caller does not supply the business's own. */
+export const BUSINESS_TZ = DEFAULT_BUSINESS_TZ;
 
 export interface AvailabilityResult {
   open: boolean;
@@ -45,9 +48,12 @@ function toMinutes(time: string): number {
 }
 
 /** Weekday + HH:MM of `at` in the business timezone. */
-function localParts(at: Date): { weekday: Weekday; time: string; minutes: number } {
+function localParts(
+  at: Date,
+  timeZone: string = DEFAULT_BUSINESS_TZ,
+): { weekday: Weekday; time: string; minutes: number } {
   const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: BUSINESS_TZ,
+    timeZone,
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
@@ -84,8 +90,9 @@ function localParts(at: Date): { weekday: Weekday; time: string; minutes: number
 export async function isOpenAt(
   businessId: string,
   at: Date = new Date(),
+  timeZone: string = DEFAULT_BUSINESS_TZ,
 ): Promise<AvailabilityResult> {
-  const { weekday, time, minutes } = localParts(at);
+  const { weekday, time, minutes } = localParts(at, timeZone);
 
   const hours = await prisma.businessHour.findMany({
     where: { businessId, weekday },

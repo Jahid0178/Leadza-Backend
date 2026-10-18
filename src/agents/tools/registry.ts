@@ -1,6 +1,8 @@
 import type { AiToolDefinition } from "../provider";
 import { calculateLeadScoreTool } from "./calculate-lead-score";
+import { checkAvailabilityTool } from "./check-availability";
 import { checkServiceAreaTool } from "./check-service-area";
+import { createBookingTool } from "./create-booking";
 import { getBusinessInfoTool } from "./get-business-info";
 import { getServiceDetailsTool } from "./get-service-details";
 import { handoffToHumanTool } from "./handoff-to-human";
@@ -18,6 +20,8 @@ export const AGENT_TOOLS: readonly AgentTool[] = [
   checkServiceAreaTool,
   updateLeadTool,
   calculateLeadScoreTool,
+  checkAvailabilityTool,
+  createBookingTool,
   handoffToHumanTool,
 ];
 

@@ -150,7 +150,7 @@ export async function loadAgentContext(
         orderBy: { createdAt: "asc" },
       }),
       prisma.businessHour.count({ where: { businessId } }),
-      isOpenAt(businessId),
+      isOpenAt(businessId, new Date(), conversation.business.timezone),
     ]);
 
   const last = messages[messages.length - 1];

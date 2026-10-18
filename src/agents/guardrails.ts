@@ -36,6 +36,12 @@ export interface GuardrailFacts {
    * open/closed statement has a verified source (§12, §25).
    */
   availabilityVerified: boolean;
+  /**
+   * Clock times ("HH:MM", business-local) the backend actually verified this
+   * run — the slots a tool returned. A time outside this set is never ours to
+   * offer (§25, §35). Absent/empty means no appointment time may be stated.
+   */
+  allowedTimes?: string[];
 }
 
 export type GuardrailViolation =
@@ -98,8 +104,41 @@ function toSentences(text: string): string[] {
 /** "we're open", "the business is closed" — anything asserting a state. */
 const OPEN_CLOSED_CLAIM = /\b(?:open|closed)\b/i;
 
-/** A clock time, e.g. "10am", "3 pm", "14:30", "9 o'clock". */
-const CLOCK_TIME = /\b\d{1,2}(?::\d{2})?\s?(?:am|pm|o'?clock)\b|\b\d{1,2}:\d{2}\b/i;
+/**
+ * Same as the clock-time idea but with capture groups, so an offered time can
+ * be normalized ("HH:MM") and checked against the times the backend verified.
+ */
+const CLOCK_TIME_G =
+  /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|o'?clock)\b|\b(\d{1,2}):(\d{2})\b/gi;
+
+/**
+ * Every clock time in `text`, normalized to 24-hour "HH:MM". Bare numbers
+ * ("2 people") are not times — a meridiem or a minutes part is required.
+ */
+export function extractClockTimes(text: string): string[] {
+  const times: string[] = [];
+  CLOCK_TIME_G.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = CLOCK_TIME_G.exec(text)) !== null) {
+    let hour: number;
+    let minute: number;
+    if (match[4] !== undefined) {
+      hour = Number(match[4]);
+      minute = Number(match[5]);
+    } else {
+      hour = Number(match[1]);
+      minute = Number(match[2] ?? "0");
+      const meridiem = (match[3] ?? "").toLowerCase();
+      if (meridiem.startsWith("p") && hour < 12) hour += 12;
+      if (meridiem.startsWith("a") && hour === 12) hour = 0;
+    }
+    if (hour > 23 || minute > 59) continue;
+    times.push(
+      `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+    );
+  }
+  return times;
+}
 
 /**
  * Verbs that turn a clock time into an appointment offer. Deliberately
@@ -158,11 +197,14 @@ export function enforceGuardrails(
   }
 
   for (const sentence of toSentences(text)) {
-    // 2. Availability: an appointment time is never ours to promise (there is
-    // no calendar integration yet — step 26), and an open/closed claim needs
-    // configured hours behind it.
-    if (CLOCK_TIME.test(sentence) && OFFER_VERBS.test(sentence)) {
-      violations.add("invented_availability");
+    // 2. Availability: an appointment time is only ours to offer when a tool
+    // verified it this run; an open/closed claim needs configured hours.
+    const offeredTimes = extractClockTimes(sentence);
+    if (offeredTimes.length > 0 && OFFER_VERBS.test(sentence)) {
+      const allowed = new Set(facts.allowedTimes ?? []);
+      if (offeredTimes.some((time) => !allowed.has(time))) {
+        violations.add("invented_availability");
+      }
     }
     if (!facts.availabilityVerified && OPEN_CLOSED_CLAIM.test(sentence)) {
       violations.add("invented_availability");
