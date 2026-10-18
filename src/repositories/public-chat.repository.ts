@@ -6,6 +6,7 @@ import {
 } from "../realtime/hub";
 import { clearTyping, setTyping, typingState } from "../realtime/typing";
 import { findCustomerByIdentity } from "./customer.repository";
+import { findPublicActiveService } from "./service.repository";
 import type { PublicChatMessageInput } from "../validation/chat.schemas";
 
 /**
@@ -61,6 +62,27 @@ export interface ChatBusiness {
 export type ChatBusinessOutcome =
   | { ok: true; business: ChatBusiness }
   | { ok: false; reason: "not_found" | "suspended" };
+
+/** The public shape of a service the widget may offer in its select menu. */
+export interface ChatPublicService {
+  id: string;
+  name: string;
+}
+
+/**
+ * The business's active services for the widget's select (§10, §17). Ids and
+ * names only — prices stay behind the authenticated API and the AI's
+ * guardrails (§25).
+ */
+export async function listPublicServices(
+  businessId: string,
+): Promise<ChatPublicService[]> {
+  return prisma.service.findMany({
+    where: { businessId, active: true },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
 
 /** Resolve the public business ref against the database (§8 status rule). */
 export async function resolveChatBusiness(
@@ -158,12 +180,22 @@ export async function startOrContinueChat(
     });
   }
 
+  // Qualification the visitor supplied up front (§15, §17). The service must
+  // belong to THIS business and still be active — a foreign or archived id
+  // is ignored, never linked (§13).
+  const serviceId = input.serviceId
+    ? (await findPublicActiveService(business.id, input.serviceId))?.id ?? null
+    : null;
+
   const tokenValue = mintToken();
   const { conversation, message } = await prisma.$transaction(async (tx) => {
     const lead = await tx.lead.create({
       data: {
         businessId: business.id,
         customerId: customer.id,
+        serviceId,
+        urgency: input.urgency ?? null,
+        preferredDate: input.preferredDate ?? null,
         source: "WEBSITE",
         customerMessage: input.message,
       },

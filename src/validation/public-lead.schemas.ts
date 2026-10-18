@@ -38,6 +38,15 @@ export const publicLeadSchema = z
       .max(120, "Service must be 120 characters or fewer.")
       .nullable()
       .optional(),
+    /** The widget's service select — validated in-tenant before linking (§13). */
+    serviceId: z
+      .string()
+      .trim()
+      .min(1)
+      .max(64, "Service must be 64 characters or fewer.")
+      .optional(),
+    urgency: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+    preferredDate: z.coerce.date().optional(),
     postcode: z
       .string()
       .trim()

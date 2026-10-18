@@ -4,6 +4,7 @@ import {
   publishMessageCreated,
 } from "../realtime/hub";
 import { findCustomerByIdentity } from "./customer.repository";
+import { findPublicActiveService } from "./service.repository";
 import type {
   PublicLeadInput,
   PublicLeadResult,
@@ -94,11 +95,15 @@ export async function capturePublicLead(
     };
   }
 
-  // Match the free-text service request to an active service by name. No
-  // match is fine — the lead stays valid without one (§15: "the enquiry
-  // may name no specific service yet"), and the AI clarifies it later.
-  let serviceId: string | null = null;
-  if (input.serviceName) {
+  // Service: the widget's select sends the serviceId, while the free-text
+  // serviceName still works for hand-rolled embeds and is matched by name.
+  // Either way the service must belong to THIS business and be active — a
+  // foreign or archived id is ignored, never linked (§13, §16). No match is
+  // fine: the lead stays valid without one (§15), and the AI clarifies it.
+  let serviceId: string | null = input.serviceId
+    ? (await findPublicActiveService(business.id, input.serviceId))?.id ?? null
+    : null;
+  if (!serviceId && input.serviceName) {
     const services = await prisma.service.findMany({
       where: { businessId: business.id, active: true },
       select: { id: true, name: true },
@@ -115,6 +120,8 @@ export async function capturePublicLead(
         businessId: business.id,
         customerId: customer.id,
         serviceId,
+        urgency: input.urgency ?? null,
+        preferredDate: input.preferredDate ?? null,
         source: "WEBSITE",
         postcode: input.postcode ?? null,
         customerMessage: input.message,

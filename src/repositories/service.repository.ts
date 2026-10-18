@@ -14,8 +14,11 @@ export interface ServiceWithRole extends ServiceDto {
 
 /**
  * Tenant-scoped service access (FEATURES §10, agent.md §13).
- * Every function verifies membership with the authenticated userId before
- * touching the row, so a businessId never comes from the client.
+ * Every authenticated function verifies membership with the userId before
+ * touching the row, so a businessId never comes from the client. The one
+ * exception is findPublicActiveService() below, which serves the anonymous
+ * website embeds whose businessId is the server-resolved ref of an ACTIVE
+ * business (§21–22).
  */
 
 /** List services the caller can see, with their role on each. */
@@ -143,4 +146,21 @@ export async function archiveServiceForUser(
   });
 
   return { ...updated as ServiceDto, role: membership.role };
+}
+
+/**
+ * Public embed lookup — attach a visitor's picked service to their lead
+ * (FEATURES §21–22, §17). The businessId is the server-resolved ref of an
+ * ACTIVE business, never a client-supplied identity (§7, §52); an id from
+ * any other tenant — or an archived service — returns null so it is ignored
+ * instead of linked (§13).
+ */
+export async function findPublicActiveService(
+  businessId: string,
+  serviceId: string,
+): Promise<{ id: string } | null> {
+  return prisma.service.findFirst({
+    where: { id: serviceId, businessId, active: true },
+    select: { id: true },
+  });
 }

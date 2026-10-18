@@ -3,6 +3,7 @@ import { isAiConfigured } from "../agents/provider";
 import { triggerAiReply } from "../services/ai-trigger";
 import {
   listChatMessages,
+  listPublicServices,
   markVisitorTyping,
   resolveChatBusiness,
   startOrContinueChat,
@@ -53,10 +54,15 @@ export async function getChatStatus(req: Request, res: Response) {
     throw ApiError.notFound("NOT_FOUND", "The requested resource was not found.");
   }
 
+  // The widget fills its service select from this list — active services,
+  // ids and names only (§10; prices stay out of the public payload, §25).
+  const services = await listPublicServices(resolved.business.id);
+
   res.json(
     apiSuccess({
       aiEnabled: isAiConfigured(),
       businessName: resolved.business.name,
+      services,
     }),
   );
 }

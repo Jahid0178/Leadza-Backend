@@ -44,6 +44,10 @@ export const publicChatMessageSchema = z
       .max(254, "Email must be 254 characters or fewer.")
       .nullable()
       .optional(),
+    /** Qualification the visitor gave with the first message (§15, §17). */
+    serviceId: z.string().trim().min(1).max(64).optional(),
+    urgency: z.enum(["LOW", "MEDIUM", "HIGH"]).optional(),
+    preferredDate: z.coerce.date().optional(),
     /** Honeypot — see the doc comment above. */
     website: z.string().max(500).optional(),
   })
