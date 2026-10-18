@@ -39,6 +39,28 @@ const envSchema = z.object({
   AI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.3),
   /** How many prior messages the agent replays as chat history. */
   AI_HISTORY_LIMIT: z.coerce.number().int().positive().max(100).default(20),
+
+  /**
+   * Lead scoring rules (FEATURES §18, IMPLEMENTATION_PLAN step 23).
+   * Deterministic point weights — the backend always computes the score from
+   * these rules, never the model. Defaults sum to LEAD_SCORE_MAX.
+   */
+  LEAD_SCORE_SERVICE: z.coerce.number().int().min(0).max(100).default(20),
+  /** Points for a location the business's own service areas cover (§18). */
+  LEAD_SCORE_AREA: z.coerce.number().int().min(0).max(100).default(15),
+  LEAD_SCORE_URGENCY_HIGH: z.coerce.number().int().min(0).max(100).default(15),
+  LEAD_SCORE_URGENCY_MEDIUM: z.coerce.number().int().min(0).max(100).default(8),
+  LEAD_SCORE_URGENCY_LOW: z.coerce.number().int().min(0).max(100).default(4),
+  /** Appointment intent — a preferred date and/or time was given (§18). */
+  LEAD_SCORE_APPOINTMENT: z.coerce.number().int().min(0).max(100).default(15),
+  /** Required information — a substantive customer message (≥ 20 chars). */
+  LEAD_SCORE_INFORMATION: z.coerce.number().int().min(0).max(100).default(5),
+  LEAD_SCORE_BUDGET: z.coerce.number().int().min(0).max(100).default(15),
+  /** Contact completeness — reachable by phone and/or email (§18). */
+  LEAD_SCORE_PHONE: z.coerce.number().int().min(0).max(100).default(10),
+  LEAD_SCORE_EMAIL: z.coerce.number().int().min(0).max(100).default(5),
+  /** Score ceiling: the stored score is always 0..LEAD_SCORE_MAX. */
+  LEAD_SCORE_MAX: z.coerce.number().int().min(1).max(100).default(100),
 });
 
 const parsed = envSchema.safeParse(process.env);
