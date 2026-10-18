@@ -1,5 +1,6 @@
 import { getSession } from "@auth/express";
 import type { NextFunction, Request, Response } from "express";
+import { findUserAuthState } from "../repositories/user.repository";
 import { ApiError } from "../utils/api-error";
 import { authConfig } from "./auth";
 import { assertPlatformAdmin } from "./permissions";
@@ -26,8 +27,24 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
  * Never rely on the frontend to protect admin routes — this runs on every
  * admin endpoint. The decision itself lives in permissions.ts so all
  * authorization goes through one module.
+ *
+ * The check reads the **current database row** (IMPLEMENTATION_PLAN step 28),
+ * not the session's `platformRole`: a granted or revoked role, or a suspended
+ * account, takes effect on the next request instead of when the 30-day JWT
+ * expires. Admin traffic is low-volume, so the extra read is cheap.
  */
-export function requirePlatformAdmin(req: Request, _res: Response, next: NextFunction) {
-  assertPlatformAdmin(req.user);
+export async function requirePlatformAdmin(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+) {
+  const user = req.user;
+  if (!user) {
+    // requireAuth normally runs first; defensive guard only.
+    throw ApiError.unauthorized("UNAUTHENTICATED", "You need to sign in to continue.");
+  }
+
+  assertPlatformAdmin(await findUserAuthState(user.id));
+
   next();
 }

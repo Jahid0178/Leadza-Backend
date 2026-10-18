@@ -484,3 +484,41 @@ model Booking {
   @@index([leadId])
   @@map("bookings")
 }
+
+/// One sensitive platform action (FEATURES §45, IMPLEMENTATION_PLAN step 29):
+/// business suspended/restored, user suspended/restored, platform role
+/// changed, … Written by the platform admin area only.
+///
+/// Deliberate choices:
+///   - no relations and a denormalized `actorEmail`: an audit entry must
+///     outlive the user or business it names, so nothing here can cascade.
+///   - `action` / `resourceType` are strings, not enums: a new audited action
+///     (subscriptions, integrations, impersonation in Phase H) must not need
+///     a migration, and the allowed values live in the TS union in
+///     `src/services/audit.service.ts`.
+///   - there is no update or delete path in any API: history is append-only
+///     (§45 "audit history should not be editable through the normal UI").
+model AuditLog {
+  id           String   @id @default(cuid())
+  /// The platform administrator who acted (User id, no relation).
+  actorId      String
+  /// Snapshot of the actor's email at the time of the action.
+  actorEmail   String
+  /// AuditAction, e.g. "business.suspended".
+  action       String
+  /// Resource kind, e.g. "business" | "user".
+  resourceType String
+  resourceId   String
+  /// Tenant the action touched; null for platform-level actions.
+  businessId   String?
+  /// Action-specific detail, e.g. { from: "ACTIVE", to: "SUSPENDED" }.
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([businessId])
+  @@index([resourceType, resourceId])
+  @@index([action])
+  @@map("audit_logs")
+}

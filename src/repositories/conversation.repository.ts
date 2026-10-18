@@ -379,3 +379,20 @@ export async function appendMessageForUser(
     conversation: { ...withRel, role: membership.role },
   };
 }
+
+/**
+ * The owning business and its status for one conversation
+ * (IMPLEMENTATION_PLAN step 28). The AI reply queue asks this before calling
+ * the model: a suspended business is out of service, so no reply is generated
+ * even if a job was queued before the suspension landed.
+ */
+export async function findConversationBusinessState(
+  conversationId: string,
+): Promise<{ businessId: string; status: string } | null> {
+  const row = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { businessId: true, business: { select: { status: true } } },
+  });
+
+  return row ? { businessId: row.businessId, status: row.business.status } : null;
+}

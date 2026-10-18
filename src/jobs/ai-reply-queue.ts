@@ -1,4 +1,5 @@
 import { runLeadAgent } from "../agents/lead-agent";
+import { findConversationBusinessState } from "../repositories/conversation.repository";
 import { logger } from "../utils/logger";
 import { JobQueue } from "./queue";
 
@@ -22,6 +23,18 @@ const queue = new JobQueue<string>({
   maxAttempts: 3,
   retryDelayMs: 2000,
   handler: async (conversationId) => {
+    // A suspended business is out of service (FEATURES §42, step 28): never
+    // answer for it, even if this job was queued before the suspension landed.
+    // Returning (not throwing) makes it a "skipped" outcome — no retry.
+    const business = await findConversationBusinessState(conversationId);
+    if (business && business.status !== "ACTIVE") {
+      logger.warn(
+        { conversationId, businessId: business.businessId },
+        "AI reply skipped — the business is suspended",
+      );
+      return;
+    }
+
     const result = await runLeadAgent(conversationId);
     if (result.status === "failed") {
       throw new Error(
