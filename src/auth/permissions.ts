@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { findMembership } from "../repositories/membership.repository";
 import { ApiError } from "../utils/api-error";
-import type { MemberRole, SessionUser } from "./types";
+import type { MemberRole } from "./types";
 
 /**
  * Authorization core (agent.md §6, §34, §Platform Admin Security).
@@ -15,13 +15,28 @@ import type { MemberRole, SessionUser } from "./types";
  *                                        tenant's resource existence, §13)
  */
 
-/** Platform-admin check (FEATURES §5). Programmatic form used by middleware. */
-export function assertPlatformAdmin(user: SessionUser | undefined): void {
-  if (user?.platformRole !== "PLATFORM_ADMIN") {
+/** Platform-admin check (FEATURES §5, §43; IMPLEMENTATION_PLAN step 28).
+ *
+ * Programmatic form used by middleware, run against the **current database
+ * row** rather than the session token: the JWT carries `platformRole` from the
+ * moment it was issued and lives for 30 days, so a granted or revoked role
+ * would otherwise keep working (or keep failing) until the user signed in
+ * again. `requirePlatformAdmin` passes `findUserAuthState(user.id)` in here.
+ *
+ *   403 PLATFORM_ADMIN_REQUIRED — not, or no longer, an administrator
+ *   403 ACCOUNT_SUSPENDED       — administrator, but the account is suspended
+ */
+export function assertPlatformAdmin(
+  state: { platformRole: string; status: string } | null,
+): void {
+  if (!state || state.platformRole !== "PLATFORM_ADMIN") {
     throw ApiError.forbidden(
       "PLATFORM_ADMIN_REQUIRED",
       "Platform administrator access is required.",
     );
+  }
+  if (state.status !== "ACTIVE") {
+    throw ApiError.forbidden("ACCOUNT_SUSPENDED", "Your account is suspended.");
   }
 }
 

@@ -8,6 +8,7 @@ import {
   toSessionUser,
 } from "../auth/session";
 import { registerUser, verifyCredentials } from "../services/auth.service";
+import { findUserAuthState } from "../repositories/user.repository";
 import { ApiError } from "../utils/api-error";
 import { apiSuccess } from "../utils/api-response";
 import type { LoginInput, RegisterInput } from "../validation/auth.schemas";
@@ -52,10 +53,28 @@ export async function logout(_req: Request, res: Response) {
   res.json(apiSuccess({ ok: true }));
 }
 
-/** GET /api/v1/auth/session — current session user, or null when signed out. */
+/**
+ * GET /api/v1/auth/session — current session user, or null when signed out.
+ *
+ * `platformRole` is re-read from the database (IMPLEMENTATION_PLAN step 28):
+ * the JWT carries it from issue time, so without this the admin navigation and
+ * the `/admin` route guard would disagree with the API for up to 30 days after
+ * a role change. The backend remains the only authority on access — this only
+ * keeps the UI in step with it.
+ */
 export async function session(req: Request, res: Response) {
   const authSession = await getSession(req, authConfig);
-  res.json(apiSuccess({ user: toSessionUser(authSession) }));
+  const user = toSessionUser(authSession);
+  if (!user) {
+    res.json(apiSuccess({ user: null }));
+    return;
+  }
+
+  const state = await findUserAuthState(user.id);
+  const platformRole =
+    state?.platformRole === "PLATFORM_ADMIN" ? "PLATFORM_ADMIN" : "USER";
+
+  res.json(apiSuccess({ user: { ...user, platformRole } }));
 }
 
 /** GET /api/v1/auth/me — protected route (requireAuth); the session user. */
