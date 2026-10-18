@@ -1,12 +1,18 @@
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { scoreLead } from "../../services/lead-score.service";
+import { checkServiceArea } from "../../services/servicearea.service";
 import { defineTool } from "./types";
 
 /**
  * calculateLeadScore() — score the conversation's lead (FEATURES §18, §24).
  * The score is computed by the backend's deterministic rules (never by the
  * model) and persisted on the lead. Scoped to the conversation's business.
+ *
+ * The area factor (§18) is decided here, where the server-resolved
+ * businessId is known: `checkServiceArea()` asks the business's own
+ * configured areas, so the score never assumes coverage the business did not
+ * define (§25).
  */
 export const calculateLeadScoreTool = defineTool({
   name: "calculateLeadScore",
@@ -34,10 +40,24 @@ export const calculateLeadScoreTool = defineTool({
       return { ok: false, denied: true, error: "That lead does not belong to this business." };
     }
 
-    const result = scoreLead(lead, {
-      phone: lead.customer.phone,
-      email: lead.customer.email,
-    });
+    // Area match (§18): a lead with no location yet scores nothing for this
+    // factor instead of being assumed covered.
+    const area =
+      lead.postcode || lead.location
+        ? await checkServiceArea(lead.businessId, {
+            postcode: lead.postcode ?? undefined,
+            place: lead.location ?? undefined,
+          })
+        : null;
+
+    const result = scoreLead(
+      lead,
+      {
+        phone: lead.customer.phone,
+        email: lead.customer.email,
+      },
+      { areaCovered: area?.inArea ?? null },
+    );
 
     await prisma.lead.update({
       where: { id: lead.id },
@@ -46,4 +66,4 @@ export const calculateLeadScoreTool = defineTool({
 
     return { ok: true, data: result };
   },
-});
+});
