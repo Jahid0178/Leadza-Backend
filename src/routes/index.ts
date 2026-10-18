@@ -11,6 +11,7 @@ import businessHourRoutes from "./businesshour.routes";
 import knowledgeRoutes from "./knowledge.routes";
 import customerRoutes from "./customers.routes";
 import leadRoutes from "./leads.routes";
+import bookingRoutes from "./bookings.routes";
 import publicLeadRoutes from "./public-leads.routes";
 import publicChatRoutes from "./public-chat.routes";
 import conversationRoutes from "./conversations.routes";
@@ -49,6 +50,7 @@ router.use("/leads/public", publicLeadRoutes);
 // thread reads.
 router.use("/chat/public", publicChatRoutes);
 router.use("/leads", leadRoutes);
+router.use("/bookings", bookingRoutes);
 router.use("/conversations", conversationRoutes);
 // Short-lived socket credentials (IMPLEMENTATION_PLAN step 38).
 router.use("/realtime", realtimeRoutes);

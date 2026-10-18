@@ -286,3 +286,111 @@ describe("executor safety", () => {
     expect((outcome.data as { inArea: boolean }).inArea).toBe(true);
   });
 });
+
+describe("checkAvailability / createBooking (§34–35)", () => {
+  const window = () => {
+    const from = new Date();
+    return { from, to: new Date(from.getTime() + 14 * 24 * 60 * 60 * 1000) };
+  };
+
+  async function firstSlot(conversationId: string, leadId: string, index = 0) {
+    const { from, to } = window();
+    const { outcome } = await executeToolCall(
+      { businessId, conversationId, customerId, leadId },
+      call("checkAvailability", { from: from.toISOString(), to: to.toISOString() }),
+    );
+    expect(outcome.ok).toBe(true);
+    const data = outcome.data as {
+      timezone: string;
+      slots: { startAt: string; endAt: string; time: string }[];
+      allowedTimes: string[];
+    };
+    expect(data.allowedTimes).toContain(data.slots[0]?.time);
+    return { slot: data.slots[index], data };
+  }
+
+  it("returns real slots and the times the reply may state", async () => {
+    const { conversationId, leadId } = await makeConversation();
+    const { data } = await firstSlot(conversationId, leadId);
+    expect(data.slots.length).toBeGreaterThan(0);
+    expect(data.allowedTimes.length).toBeGreaterThan(0);
+    expect(data.timezone).toBeTruthy();
+  });
+
+  it("returns no slots for a window entirely in the past", async () => {
+    const { conversationId, leadId } = await makeConversation();
+    const to = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const from = new Date(to.getTime() - 5 * 24 * 60 * 60 * 1000);
+    const { outcome } = await executeToolCall(
+      { businessId, conversationId, customerId, leadId },
+      call("checkAvailability", { from: from.toISOString(), to: to.toISOString() }),
+    );
+    expect(outcome.ok).toBe(true);
+    expect((outcome.data as { slots: unknown[] }).slots).toEqual([]);
+  });
+
+  it("DENIES a range whose end is not after its start", async () => {
+    const { conversationId, leadId } = await makeConversation();
+    const at = new Date().toISOString();
+    const { outcome } = await executeToolCall(
+      { businessId, conversationId, customerId, leadId },
+      call("checkAvailability", { from: at, to: at }),
+    );
+    expect(outcome.ok).toBe(false);
+    expect(outcome.denied).toBe(true);
+  });
+
+  it("books an agreed slot as PENDING and advances the lead to BOOKED", async () => {
+    const { conversationId, leadId } = await makeConversation();
+    await prisma.lead.update({ where: { id: leadId }, data: { status: "QUALIFIED" } });
+
+    const { slot } = await firstSlot(conversationId, leadId, 0);
+    const { outcome } = await executeToolCall(
+      { businessId, conversationId, customerId, leadId },
+      call("createBooking", { startAt: slot!.startAt }),
+    );
+    expect(outcome.ok).toBe(true);
+    const data = outcome.data as { booking: { status: string }; allowedTimes: string[] };
+    expect(data.booking.status).toBe("PENDING");
+    expect(data.allowedTimes).toContain(slot!.time);
+
+    const booking = await prisma.booking.findFirst({
+      where: { businessId, leadId },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(booking?.origin).toBe("AI");
+    expect(booking?.createdById).toBeNull();
+
+    const lead = await prisma.lead.findUniqueOrThrow({ where: { id: leadId } });
+    expect(lead.status).toBe("BOOKED");
+  });
+
+  it("refuses to double-book a slot the AI already took", async () => {
+    const { conversationId, leadId } = await makeConversation();
+    const { slot } = await firstSlot(conversationId, leadId, 3);
+
+    const first = await executeToolCall(
+      { businessId, conversationId, customerId, leadId },
+      call("createBooking", { startAt: slot!.startAt }),
+    );
+    expect(first.outcome.ok).toBe(true);
+
+    const second = await executeToolCall(
+      { businessId, conversationId, customerId, leadId },
+      call("createBooking", { startAt: slot!.startAt }),
+    );
+    expect(second.outcome.ok).toBe(false);
+  });
+
+  it("DENIES a booking when the conversation has no customer", async () => {
+    const { conversationId, leadId } = await makeConversation();
+    const { outcome } = await executeToolCall(
+      { businessId, conversationId, customerId: "", leadId },
+      call("createBooking", {
+        startAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      }),
+    );
+    expect(outcome.ok).toBe(false);
+    expect(outcome.denied).toBe(true);
+  });
+});

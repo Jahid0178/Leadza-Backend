@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   enforceGuardrails,
   extractAmounts,
+  extractClockTimes,
   type GuardrailFacts,
 } from "../src/agents/guardrails";
 
@@ -143,5 +144,43 @@ describe("enforceGuardrails — clean replies and precedence", () => {
     );
     expect(result.ok).toBe(false);
     expect(result.violations[0]).toBe("invented_price");
+  });
+});
+
+describe("extractClockTimes", () => {
+  it("normalizes am/pm and 24-hour times to HH:MM", () => {
+    expect(extractClockTimes("at 10am")).toEqual(["10:00"]);
+    expect(extractClockTimes("3 pm")).toEqual(["15:00"]);
+    expect(extractClockTimes("14:30")).toEqual(["14:30"]);
+    expect(extractClockTimes("12am and 12pm")).toEqual(["00:00", "12:00"]);
+  });
+
+  it("ignores bare numbers that are not times", () => {
+    expect(extractClockTimes("2 people for 3 days")).toEqual([]);
+  });
+});
+
+describe("enforceGuardrails — verified appointment times (§35)", () => {
+  it("allows an appointment time the backend verified this run", () => {
+    const result = enforceGuardrails(
+      "I can book you in for 10am tomorrow.",
+      facts({ allowedTimes: ["10:00"] }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("blocks a time the backend never returned", () => {
+    const result = enforceGuardrails(
+      "I can book you in for 11am tomorrow.",
+      facts({ allowedTimes: ["10:00"] }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.violations).toContain("invented_availability");
+  });
+
+  it("blocks a booking offer when no time was verified", () => {
+    const result = enforceGuardrails("Let's get you booked in at 10am.", facts());
+    expect(result.ok).toBe(false);
+    expect(result.violations).toContain("invented_availability");
   });
 });

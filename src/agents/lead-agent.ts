@@ -100,6 +100,8 @@ export async function runLeadAgent(
   const MAX_TOOL_ROUNDS = 3;
   let completion: AiCompletion | null = null;
   let handoffRequested = false;
+  /** Clock times a tool verified this run — the only times the AI may state. */
+  const verifiedTimes = new Set<string>();
 
   // Show "AI is typing…" on the widget and dashboard while the model works.
   // Cleared in the `finally`, whatever this run does (§22).
@@ -116,6 +118,16 @@ export async function runLeadAgent(
       for (const call of calls) {
         const { outcome } = await executeToolCall(toolContext, call);
         if (call.name === "handoffToHuman" && outcome.ok) handoffRequested = true;
+        // A tool that returned real slots/bookings tells the guardrail which
+        // appointment times the model is allowed to mention (§25).
+        if (outcome.ok && outcome.data && typeof outcome.data === "object") {
+          const times = (outcome.data as { allowedTimes?: unknown }).allowedTimes;
+          if (Array.isArray(times)) {
+            for (const time of times) {
+              if (typeof time === "string") verifiedTimes.add(time);
+            }
+          }
+        }
         messages.push({
           role: "tool",
           toolCallId: call.id,
@@ -167,6 +179,7 @@ export async function runLeadAgent(
       .filter((service) => service.price !== null)
       .map((service) => ({ service: service.name, amount: service.price as number })),
     availabilityVerified: context.availability.verified,
+    allowedTimes: [...verifiedTimes],
   });
 
   if (!guarded.ok) {

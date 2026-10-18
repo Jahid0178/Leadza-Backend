@@ -106,6 +106,22 @@ enum ConversationChannel {
   INSTAGRAM
 }
 
+/// Booking lifecycle (FEATURES §35, IMPLEMENTATION_PLAN step 27). The backend
+/// owns the transitions between these — the frontend may never jump states.
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+/// Who created a booking: the AI agent or a staff member (§35).
+enum BookingOrigin {
+  AI
+  STAFF
+}
+
 /// Who wrote a message (FEATURES §20).
 enum MessageSender {
   CUSTOMER
@@ -136,6 +152,7 @@ model User {
 
   memberships BusinessMember[]
   assignedConversations Conversation[] @relation("ConversationAssignee")
+  createdBookings Booking[] @relation("BookingCreator")
 
   @@map("users")
 }
@@ -175,6 +192,7 @@ model Business {
   leads     Lead[]
   conversations Conversation[]
   aiToolCalls AiToolCall[]
+  bookings  Booking[]
 
   @@map("businesses")
 }
@@ -210,6 +228,7 @@ model Service {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   leads    Lead[]
+  bookings Booking[]
 
   @@index([businessId])
   @@map("services")
@@ -274,6 +293,7 @@ model Customer {
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   leads    Lead[]
   conversations Conversation[]
+  bookings Booking[]
 
   @@index([businessId])
   @@index([businessId, phone])
@@ -312,6 +332,7 @@ model Lead {
   service  Service? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   conversations Conversation[]
   aiToolCalls AiToolCall[]
+  bookings Booking[]
 
   @@index([businessId])
   @@index([businessId, status])
@@ -426,4 +447,40 @@ model AiToolCall {
   @@index([conversationId])
   @@index([tool])
   @@map("ai_tool_calls")
+}
+
+/// A scheduled appointment (FEATURES §35, IMPLEMENTATION_PLAN step 27).
+/// Availability comes from the business's own hours (and, later, a connected
+/// calendar) — the AI may never offer a time no source reports (§25, §34).
+/// A partial unique index on (business_id, start_at) for active statuses stops
+/// a race from double-booking the same slot; it is added in the migration.
+model Booking {
+  id          String        @id @default(cuid())
+  businessId  String
+  customerId  String
+  /// Optional: a booking may not be tied to a lead.
+  leadId      String?
+  serviceId   String?
+  startAt     DateTime
+  endAt       DateTime
+  status      BookingStatus @default(PENDING)
+  origin      BookingOrigin @default(STAFF)
+  notes       String?
+  /// Staff member who created it (null for AI-created bookings).
+  createdById String?
+  cancelledAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  business  Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer  Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  lead      Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  service   Service?  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("BookingCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([businessId, startAt])
+  @@index([businessId, status])
+  @@index([businessId, customerId])
+  @@index([leadId])
+  @@map("bookings")
 }

@@ -3,6 +3,7 @@ import type {
   MessageSender,
 } from "../validation/conversation.schemas";
 import type { ConversationStatus } from "../services/conversation-status";
+import type { BookingStatus } from "../services/booking-status";
 import { logger } from "../utils/logger";
 
 /**
@@ -62,6 +63,19 @@ export type RealtimeEvent =
       businessId: string;
       conversationId: string;
       typing: TypingRoles;
+    }
+  | {
+      type: "booking.created";
+      businessId: string;
+      bookingId: string;
+    }
+  | {
+      type: "booking.updated";
+      businessId: string;
+      bookingId: string;
+      status: BookingStatus;
+      startAt: string;
+      endAt: string;
     };
 
 /** Delivers one event to every socket subscribed to the business. */
@@ -159,5 +173,29 @@ export function publishTypingUpdated(
     businessId,
     conversationId,
     typing,
+  });
+}
+
+/** A booking appeared — an open calendar must re-read its range (§35). */
+export function publishBookingCreated(
+  businessId: string,
+  booking: { id: string },
+): void {
+  publishRealtime({ type: "booking.created", businessId, bookingId: booking.id });
+}
+
+/** A booking was rescheduled or its status changed — the calendar re-reads. */
+export function publishBookingUpdated(
+  businessId: string,
+  booking: { id: string; status: BookingStatus; startAt: Date | string; endAt: Date | string },
+): void {
+  publishRealtime({
+    type: "booking.updated",
+    businessId,
+    bookingId: booking.id,
+    status: booking.status,
+    startAt:
+      booking.startAt instanceof Date ? booking.startAt.toISOString() : booking.startAt,
+    endAt: booking.endAt instanceof Date ? booking.endAt.toISOString() : booking.endAt,
   });
 }

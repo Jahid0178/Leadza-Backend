@@ -61,6 +61,17 @@ const envSchema = z.object({
   LEAD_SCORE_EMAIL: z.coerce.number().int().min(0).max(100).default(5),
   /** Score ceiling: the stored score is always 0..LEAD_SCORE_MAX. */
   LEAD_SCORE_MAX: z.coerce.number().int().min(1).max(100).default(100),
+
+  /**
+   * Booking / availability (FEATURES §35, IMPLEMENTATION_PLAN step 27).
+   * Slots are generated from the business's own opening hours; a booking
+   * defaults to this duration when its service names none.
+   */
+  BOOKING_DEFAULT_DURATION: z.coerce.number().int().positive().max(1440).default(60),
+  /** Shortest slot the calendar will generate (minutes). */
+  BOOKING_MIN_DURATION: z.coerce.number().int().positive().max(1440).default(15),
+  /** Upper bound on how many days of availability are computed in one call. */
+  BOOKING_MAX_RANGE_DAYS: z.coerce.number().int().positive().max(366).default(62),
 });
 
 const parsed = envSchema.safeParse(process.env);
