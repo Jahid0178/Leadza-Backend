@@ -114,6 +114,12 @@ async function mirrorSubscription(
     scheduledChangeAt: subscription.scheduledChange?.effectiveAt
       ? new Date(subscription.scheduledChange.effectiveAt)
       : null,
+    paddleCreatedAt: subscription.createdAt
+      ? new Date(subscription.createdAt)
+      : null,
+    nextBilledAt: subscription.nextBilledAt
+      ? new Date(subscription.nextBilledAt)
+      : null,
   });
 
   return true;

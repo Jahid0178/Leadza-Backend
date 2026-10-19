@@ -3,6 +3,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { seedAdmin } from "../prisma/seed";
 import { createApp } from "../src/app";
+import { env } from "../src/config/env";
 import { prisma } from "../src/lib/prisma";
 import { findConversationBusinessState } from "../src/repositories/conversation.repository";
 import { setPlatformRole } from "../src/services/admin.service";
@@ -87,6 +88,11 @@ let bookingA: string;
 
 const businessAName = `Admin Test Plumbing ${stamp}`;
 const businessBName = `Admin Test Heating ${stamp}`;
+
+// Billing fixture ids: unique per run, deleted again in `afterAll` below.
+const billingCustomerId = `ctm_admin_test_${stamp}`;
+const billingSubscriptionId = `sub_admin_test_${stamp}`;
+const billingEmail = `billing-${stamp}@example.com`;
 
 beforeAll(async () => {
   [admin, admin2, ownerA, ownerB] = await Promise.all([
@@ -195,6 +201,15 @@ afterAll(async () => {
     },
   });
   await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+
+  // Billing mirrors created by this suite (never any real Paddle ids).
+  await prisma.subscription.deleteMany({
+    where: { subscriptionId: billingSubscriptionId },
+  });
+  await prisma.paddleCustomer.deleteMany({
+    where: { customerId: billingCustomerId },
+  });
+
   await prisma.business.deleteMany({ where: { id: { in: [businessA, businessB] } } });
   stopAiReplyQueue();
 });
@@ -241,6 +256,7 @@ describe("admin gate (§5, §60)", () => {
     ["get", "/api/v1/admin/businesses"],
     ["get", "/api/v1/admin/users"],
     ["get", "/api/v1/admin/audit-logs"],
+    ["get", "/api/v1/admin/subscriptions"],
   ];
 
   it("rejects anonymous callers with 401", async () => {
@@ -726,6 +742,113 @@ describe("platform role rules (unit)", () => {
       countActivePlatformAdmins: async () => 1,
     });
     expect(result).toEqual({ ok: false, reason: "not_found" });
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Phase H — billing subscriptions
+ * ------------------------------------------------------------------ */
+
+describe("platform billing (Phase H)", () => {
+  const billedPriceId = "pri_01m5ath3h8q9njyqr2w38kedr0";
+  const billedProductId = "pro_01m5ath34z1berzctwc08rd6v6";
+
+  beforeAll(async () => {
+    await prisma.paddleCustomer.upsert({
+      where: { customerId: billingCustomerId },
+      create: { customerId: billingCustomerId, email: billingEmail, businessId: businessA },
+      update: {},
+    });
+
+    await prisma.subscription.upsert({
+      where: { subscriptionId: billingSubscriptionId },
+      create: {
+        subscriptionId: billingSubscriptionId,
+        customerId: billingCustomerId,
+        businessId: businessA,
+        status: "trialing",
+        priceId: billedPriceId,
+        productId: billedProductId,
+        paddleCreatedAt: new Date("2026-01-01T00:00:00.000Z"),
+        nextBilledAt: new Date("2026-01-08T00:00:00.000Z"),
+      },
+      update: {},
+    });
+  });
+
+  it("lists every subscription with its tenant, plan ids and status", async () => {
+    const res = await request(app)
+      .get("/api/v1/admin/subscriptions")
+      .set("Cookie", admin.cookie);
+
+    expect(res.status).toBe(200);
+
+    const listed = (
+      res.body.data.subscriptions as Array<Record<string, unknown>>
+    ).find((row) => row.subscriptionId === billingSubscriptionId);
+
+    expect(listed).toMatchObject({
+      status: "trialing",
+      priceId: billedPriceId,
+      productId: billedProductId,
+      business: { id: businessA, name: businessAName },
+      customer: { customerId: billingCustomerId, email: billingEmail },
+    });
+
+    // The summary is platform-wide, so it can never shrink below one row.
+    expect(res.body.data.summary.trialing).toBeGreaterThanOrEqual(1);
+    expect(res.body.data.summary.total).toBeGreaterThanOrEqual(1);
+  });
+
+  it("filters by status and searches business, email or subscription id", async () => {
+    const byEmail = await request(app)
+      .get(`/api/v1/admin/subscriptions?search=${encodeURIComponent(billingEmail)}`)
+      .set("Cookie", admin.cookie);
+    expect(byEmail.status).toBe(200);
+    expect(byEmail.body.data.total).toBe(1);
+
+    const bySubscription = await request(app)
+      .get(`/api/v1/admin/subscriptions?search=${billingSubscriptionId}`)
+      .set("Cookie", admin.cookie);
+    expect(bySubscription.body.data.total).toBe(1);
+
+    const byName = await request(app)
+      .get(`/api/v1/admin/subscriptions?search=${encodeURIComponent(businessAName)}`)
+      .set("Cookie", admin.cookie);
+    expect(byName.body.data.total).toBeGreaterThanOrEqual(1);
+
+    const canceled = await request(app)
+      .get("/api/v1/admin/subscriptions?status=canceled")
+      .set("Cookie", admin.cookie);
+    expect(canceled.status).toBe(200);
+    expect(
+      (canceled.body.data.subscriptions as Array<{ status: string }>).every(
+        (row) => row.status === "canceled",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects an unknown status with 400", async () => {
+    const res = await request(app)
+      .get("/api/v1/admin/subscriptions?status=refunded")
+      .set("Cookie", admin.cookie);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("never exposes billing secrets", async () => {
+    const res = await request(app)
+      .get("/api/v1/admin/subscriptions")
+      .set("Cookie", admin.cookie);
+
+    const body = JSON.stringify(res.body);
+    for (const secret of [
+      env.PADDLE_SANDBOX_API_KEY,
+      env.PADDLE_WEBHOOK_SANDBOX_SECRET,
+    ]) {
+      if (secret) expect(body).not.toContain(secret);
+    }
   });
 });
 

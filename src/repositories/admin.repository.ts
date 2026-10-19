@@ -6,10 +6,14 @@ import type {
   AdminBusinessOwnerDto,
   AdminBusinessSummaryDto,
   AdminOverviewDto,
+  AdminSubscriptionDto,
+  AdminSubscriptionPageDto,
+  AdminSubscriptionSummaryDto,
   AdminUserDetailDto,
   AdminUserSummaryDto,
   BusinessStatusInput,
   ListAdminBusinessesQuery,
+  ListAdminSubscriptionsQuery,
   ListAdminUsersQuery,
   ListAuditLogsQuery,
   MemberRoleDto,
@@ -614,5 +618,132 @@ export async function listAuditLogsForAdmin(query: ListAuditLogsQuery): Promise<
     total,
     page: query.page,
     pageSize: query.pageSize,
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Billing (Phase H) — every mirrored Paddle subscription
+ * ------------------------------------------------------------------ */
+
+/** Columns the admin billing table needs — never the whole record. */
+const subscriptionAdminSelect = {
+  subscriptionId: true,
+  status: true,
+  priceId: true,
+  productId: true,
+  scheduledChangeAction: true,
+  scheduledChangeAt: true,
+  paddleCreatedAt: true,
+  nextBilledAt: true,
+  createdAt: true,
+  updatedAt: true,
+  business: { select: { id: true, name: true, status: true } },
+  customer: { select: { customerId: true, email: true } },
+} as const;
+
+interface SubscriptionAdminRow {
+  subscriptionId: string;
+  status: string;
+  priceId: string;
+  productId: string;
+  scheduledChangeAction: string | null;
+  scheduledChangeAt: Date | null;
+  paddleCreatedAt: Date | null;
+  nextBilledAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  business: { id: string; name: string; status: BusinessStatusInput } | null;
+  customer: { customerId: string; email: string };
+}
+
+function toSubscriptionAdminDto(
+  row: SubscriptionAdminRow,
+): AdminSubscriptionDto {
+  return {
+    subscriptionId: row.subscriptionId,
+    status: row.status,
+    priceId: row.priceId,
+    productId: row.productId,
+    scheduledChangeAction: row.scheduledChangeAction,
+    scheduledChangeAt: row.scheduledChangeAt,
+    paddleCreatedAt: row.paddleCreatedAt,
+    nextBilledAt: row.nextBilledAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    business: row.business,
+    customer: row.customer,
+  };
+}
+
+function toSubscriptionSummary(
+  groups: Array<{ status: string; _count: { _all: number } }>,
+): AdminSubscriptionSummaryDto {
+  const summary: AdminSubscriptionSummaryDto = {
+    total: 0,
+    active: 0,
+    trialing: 0,
+    pastDue: 0,
+    paused: 0,
+    canceled: 0,
+  };
+
+  for (const group of groups) {
+    const count = group._count._all;
+    summary.total += count;
+    // Statuses we do not know yet still count toward the total, but never get
+    // folded into a named bucket.
+    if (group.status === "past_due") summary.pastDue += count;
+    else if (
+      group.status === "active" ||
+      group.status === "trialing" ||
+      group.status === "paused" ||
+      group.status === "canceled"
+    ) {
+      summary[group.status] += count;
+    }
+  }
+
+  return summary;
+}
+
+/**
+ * Billing list for the platform admin (Phase H).
+ *
+ * Cross-tenant by design, like the rest of this file: it is gated by
+ * `requirePlatformAdmin` and never reachable from a business-scoped route.
+ * The summary is computed over **every** subscription, not the filtered page,
+ * so the tiles stay stable while the operator filters the table.
+ */
+export async function listSubscriptionsForAdmin(
+  query: ListAdminSubscriptionsQuery,
+): Promise<AdminSubscriptionPageDto> {
+  const where: Record<string, unknown> = {};
+  if (query.status) where.status = query.status;
+  if (query.search) {
+    where.OR = [
+      { business: { name: { contains: query.search, mode: "insensitive" } } },
+      { customer: { email: { contains: query.search, mode: "insensitive" } } },
+      { subscriptionId: { contains: query.search, mode: "insensitive" } },
+    ];
+  }
+
+  const [rows, total, groups] = await Promise.all([
+    prisma.subscription.findMany({
+      where,
+      select: subscriptionAdminSelect,
+      orderBy: { updatedAt: "desc" },
+      skip: (query.page - 1) * query.pageSize,
+      take: query.pageSize,
+    }),
+    prisma.subscription.count({ where }),
+    prisma.subscription.groupBy({ by: ["status"], _count: { _all: true } }),
+  ]);
+
+  return {
+    subscriptions: rows.map(toSubscriptionAdminDto),
+    total,
+    page: query.page,
+    pageSize: query.pageSize,
+    summary: toSubscriptionSummary(groups),
   };
 }

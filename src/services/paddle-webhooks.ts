@@ -96,6 +96,8 @@ async function handleSubscriptionChanged(data: Record<string, unknown>) {
   const scheduledChange = asRecord(data.scheduledChange);
   const scheduledChangeAction = asString(scheduledChange?.action);
   const effectiveAt = asString(scheduledChange?.effectiveAt);
+  const createdAt = asString(data.createdAt);
+  const nextBilledAt = asString(data.nextBilledAt);
 
   // Prefer the tenant already linked to this customer; fall back to custom
   // data (validated) so a first-time subscription can establish the link.
@@ -112,6 +114,8 @@ async function handleSubscriptionChanged(data: Record<string, unknown>) {
     productId,
     scheduledChangeAction,
     scheduledChangeAt: effectiveAt ? new Date(effectiveAt) : null,
+    paddleCreatedAt: createdAt ? new Date(createdAt) : null,
+    nextBilledAt: nextBilledAt ? new Date(nextBilledAt) : null,
   });
 
   // Backfill the customer link when the subscription established it.
