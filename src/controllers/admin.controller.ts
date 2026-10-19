@@ -5,6 +5,7 @@ import {
   getPlatformOverview,
   listAuditLogsForAdmin,
   listBusinessesForAdmin,
+  listSubscriptionsForAdmin,
   listUsersForAdmin,
   type AdminActor,
 } from "../repositories/admin.repository";
@@ -17,6 +18,7 @@ import {
   changePlatformRoleSchema,
   changeUserStatusSchema,
   listAdminBusinessesQuerySchema,
+  listAdminSubscriptionsQuerySchema,
   listAdminUsersQuerySchema,
   listAuditLogsQuerySchema,
 } from "../validation/admin.schemas";
@@ -184,6 +186,27 @@ export async function listAuditLogs(req: Request, res: Response) {
       total: page.total,
       page: page.page,
       pageSize: page.pageSize,
+    }),
+  );
+}
+
+/**
+ * GET /api/v1/admin/subscriptions — every mirrored Paddle subscription.
+ *
+ * Phase H billing: who bought what, from which tenant, and where each
+ * subscription stands. Read-only — plan changes belong to the customer portal,
+ * and nothing here mutates billing state.
+ */
+export async function listSubscriptions(req: Request, res: Response) {
+  const query = parseAfterAuth(listAdminSubscriptionsQuerySchema, req.query);
+  const page = await listSubscriptionsForAdmin(query);
+  res.json(
+    apiSuccess({
+      subscriptions: page.subscriptions,
+      total: page.total,
+      page: page.page,
+      pageSize: page.pageSize,
+      summary: page.summary,
     }),
   );
 }

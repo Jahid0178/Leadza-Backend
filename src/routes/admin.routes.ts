@@ -33,4 +33,7 @@ router.patch("/users/:userId/platform-role", adminController.changePlatformRole)
 
 router.get("/audit-logs", adminController.listAuditLogs);
 
+/** Phase H billing — read-only mirror of Paddle subscriptions (all tenants). */
+router.get("/subscriptions", adminController.listSubscriptions);
+
 export default router;

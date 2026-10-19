@@ -72,6 +72,32 @@ export const listAuditLogsQuerySchema = z.object({
 
 export type ListAuditLogsQuery = z.infer<typeof listAuditLogsQuerySchema>;
 
+/**
+ * Paddle subscription statuses we mirror. Kept in sync with
+ * `server/src/services/paddle-billing.ts` — `active`/`trialing` grant product
+ * access, the rest deny it.
+ */
+export const subscriptionStatusSchema = z.enum([
+  "active",
+  "trialing",
+  "past_due",
+  "paused",
+  "canceled",
+]);
+
+/** GET /api/v1/admin/subscriptions — cross-tenant billing list. */
+export const listAdminSubscriptionsQuerySchema = z.object({
+  /** Matches business name, customer email or the Paddle subscription id. */
+  search: z.string().trim().max(200).optional(),
+  status: subscriptionStatusSchema.optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+export type ListAdminSubscriptionsQuery = z.infer<
+  typeof listAdminSubscriptionsQuerySchema
+>;
+
 /* ------------------------------------------------------------------ *
  * Response shapes (agent.md §26) — never include passwordHash or any
  * field the admin UI does not need.
@@ -166,4 +192,54 @@ export interface AdminAuditEntryDto {
   businessId: string | null;
   metadata: Record<string, unknown> | null;
   createdAt: Date;
+}
+
+/** Tenant a subscription belongs to; null until the link is resolved. */
+export interface AdminSubscriptionBusinessDto {
+  id: string;
+  name: string;
+  status: BusinessStatusInput;
+}
+
+/**
+ * One mirrored Paddle subscription. Plan naming lives in the frontend
+ * (`client/content/pricing.ts`), so the API reports the price/product ids it
+ * actually stored rather than inventing a label here.
+ */
+export interface AdminSubscriptionDto {
+  subscriptionId: string;
+  /** A Paddle status; typed loosely so a new one degrades instead of crashing. */
+  status: string;
+  priceId: string;
+  productId: string;
+  scheduledChangeAction: string | null;
+  scheduledChangeAt: Date | null;
+  /** Paddle's own creation time; null on rows not synced since the column. */
+  paddleCreatedAt: Date | null;
+  /** Next charge (or trial end); null when there is no future bill. */
+  nextBilledAt: Date | null;
+  /** When we first mirrored the row. */
+  createdAt: Date;
+  /** Last time a webhook or reconciliation touched it. */
+  updatedAt: Date;
+  business: AdminSubscriptionBusinessDto | null;
+  customer: { customerId: string; email: string };
+}
+
+/** Platform-wide counts, so the tiles never disagree with the table filters. */
+export interface AdminSubscriptionSummaryDto {
+  total: number;
+  active: number;
+  trialing: number;
+  pastDue: number;
+  paused: number;
+  canceled: number;
+}
+
+export interface AdminSubscriptionPageDto {
+  subscriptions: AdminSubscriptionDto[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: AdminSubscriptionSummaryDto;
 }

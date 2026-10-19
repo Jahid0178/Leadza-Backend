@@ -46,6 +46,10 @@ export interface SubscriptionInput {
   productId: string;
   scheduledChangeAction?: string | null;
   scheduledChangeAt?: Date | null;
+  /** When Paddle created it; omitted events keep the stored value. */
+  paddleCreatedAt?: Date | null;
+  /** Paddle's next bill; `null` is meaningful (no future charge). */
+  nextBilledAt?: Date | null;
 }
 
 export async function upsertSubscription(input: SubscriptionInput) {
@@ -58,6 +62,8 @@ export async function upsertSubscription(input: SubscriptionInput) {
     productId,
     scheduledChangeAction = null,
     scheduledChangeAt = null,
+    paddleCreatedAt = null,
+    nextBilledAt = null,
   } = input;
 
   return prisma.subscription.upsert({
@@ -71,6 +77,8 @@ export async function upsertSubscription(input: SubscriptionInput) {
       productId,
       scheduledChangeAction,
       scheduledChangeAt,
+      paddleCreatedAt,
+      nextBilledAt,
     },
     update: {
       status,
@@ -80,6 +88,10 @@ export async function upsertSubscription(input: SubscriptionInput) {
       // reports it is gone (e.g. after a resume).
       scheduledChangeAction,
       scheduledChangeAt,
+      // Same for the next bill: a canceled subscription has none, and the
+      // admin view must not keep showing a date that will never happen.
+      nextBilledAt,
+      ...(paddleCreatedAt ? { paddleCreatedAt } : {}),
       ...(businessId ? { businessId } : {}),
     },
   });

@@ -563,6 +563,12 @@ model Subscription {
   productId             String    @map("product_id")
   scheduledChangeAction String?   @map("scheduled_change_action")
   scheduledChangeAt     DateTime? @map("scheduled_change_at")
+  /// When Paddle created the subscription — not when we mirrored it. Null on
+  /// rows mirrored before this column existed, until their next sync.
+  paddleCreatedAt       DateTime? @map("paddle_created_at")
+  /// Paddle's next charge/attempt; null once the subscription has no future
+  /// bill (canceled). Keeps the admin view honest between notifications.
+  nextBilledAt          DateTime? @map("next_billed_at")
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
