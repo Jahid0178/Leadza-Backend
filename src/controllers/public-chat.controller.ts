@@ -2,6 +2,10 @@ import type { Request, Response } from "express";
 import { isAiConfigured } from "../agents/provider";
 import { triggerAiReply } from "../services/ai-trigger";
 import {
+  checkAiRun,
+  isAiAvailableForBusiness,
+} from "../services/usage.service";
+import {
   listChatMessages,
   listPublicServices,
   markVisitorTyping,
@@ -58,9 +62,15 @@ export async function getChatStatus(req: Request, res: Response) {
   // ids and names only (§10; prices stay out of the public payload, §25).
   const services = await listPublicServices(resolved.business.id);
 
+  // Chat is offered only when a model is configured **and** the business's
+  // plan can answer it (step 31). Otherwise the widget falls back to the
+  // enquiry form, which always works.
+  const aiEnabled =
+    isAiConfigured() && (await isAiAvailableForBusiness(resolved.business.id));
+
   res.json(
     apiSuccess({
-      aiEnabled: isAiConfigured(),
+      aiEnabled,
       businessName: resolved.business.name,
       services,
     }),
@@ -119,12 +129,18 @@ export async function postChatMessage(req: Request, res: Response) {
   // the reply; a disabled provider leaves the message for a human instead.
   void triggerAiReply(outcome.result.conversationId);
 
+  // Truthful "can the AI answer this thread?" flag — the queue enforces the
+  // same check again, so this is display only, never the gate (step 31).
+  const aiEnabled =
+    isAiConfigured() &&
+    (await checkAiRun(businessRef, outcome.result.conversationId)).allowed;
+
   res.status(outcome.result.created ? 201 : 200).json(
     apiSuccess({
       conversationId: outcome.result.conversationId,
       token: outcome.result.token,
       status: outcome.result.status,
-      aiEnabled: isAiConfigured(),
+      aiEnabled,
     }),
   );
 }

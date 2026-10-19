@@ -3,6 +3,7 @@ import { executeToolCall } from "../src/agents/tools/executor";
 import type { ToolContext } from "../src/agents/tools/types";
 import type { AiToolCall } from "../src/agents/provider";
 import { prisma } from "../src/lib/prisma";
+import { grantPlan } from "./helpers/plan";
 
 /**
  * AI tool tests (IMPLEMENTATION_PLAN step 21, agent.md §16, §41).
@@ -54,6 +55,10 @@ beforeAll(async () => {
   });
   businessId = business.id;
   await prisma.businessMember.create({ data: { businessId, userId, role: "OWNER" } });
+
+  // createBooking is metered (step 31): an active plan keeps the tool tests
+  // focused on ownership and validation.
+  await grantPlan(businessId, "pro");
 
   const service = await prisma.service.create({
     data: { businessId, name: "Boiler Repair", price: 90, priceType: "FROM", active: true },

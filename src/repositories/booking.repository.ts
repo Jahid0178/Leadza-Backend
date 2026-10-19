@@ -17,6 +17,7 @@ import {
   type SlotCheck,
 } from "../services/availability.service";
 import { canTransitionLead, type LeadStatus } from "../services/lead-status";
+import { checkUsage } from "../services/usage.service";
 import { publishBookingCreated, publishBookingUpdated } from "../realtime/hub";
 
 /** Booking with the relations the calendar and detail views need (§35). */
@@ -176,7 +177,15 @@ export type BookingRefusal =
   | { reason: "not_found" }
   | { reason: "unavailable" }
   | { reason: "end_before_start" }
-  | { reason: "outside_hours"; openingHours: string[] };
+  | { reason: "outside_hours"; openingHours: string[] }
+  /** No active subscription, or the plan does not include booking (step 31). */
+  | { reason: "subscription_required" }
+  | {
+      reason: "limit_reached";
+      metric: "bookings";
+      used: number;
+      limit: number;
+    };
 
 /** Outcome of a create/reschedule: the booking or why it was refused. */
 export type BookingMutationResult =
@@ -235,6 +244,24 @@ export async function createBookingScoped(
       select: { id: true, status: true },
     });
     if (!lead) return { ok: false, reason: "not_found" };
+  }
+
+  // Plan allowance (FEATURES §48, step 31). This is the single create path for
+  // staff and the AI, so one check covers both. It runs after ownership checks
+  // (a foreign id still answers 404) and before the slot check, so an
+  // exhausted plan is never reported as a misleading slot clash.
+  const usage = await checkUsage(input.businessId, "bookings");
+  if (!usage.allowed) {
+    if (usage.reason === "subscription_required") {
+      return { ok: false, reason: "subscription_required" };
+    }
+    return {
+      ok: false,
+      reason: "limit_reached",
+      metric: "bookings",
+      used: usage.used,
+      limit: usage.limit,
+    };
   }
 
   const durationMinutes = await resolveBookingDuration(input.businessId, input.serviceId);
