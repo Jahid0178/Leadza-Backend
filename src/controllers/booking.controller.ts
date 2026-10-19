@@ -9,6 +9,12 @@ import {
   type BookingRefusal,
 } from "../repositories/booking.repository";
 import { getAvailableSlots } from "../services/availability.service";
+import {
+  SUBSCRIPTION_REQUIRED,
+  USAGE_LIMIT_REACHED,
+  limitReachedMessage,
+  subscriptionRequiredMessage,
+} from "../services/usage.service";
 import { ApiError } from "../utils/api-error";
 import { apiSuccess } from "../utils/api-response";
 import { parseAfterAuth, requireMembership } from "../utils/business-access";
@@ -67,6 +73,18 @@ function refuseBooking(refusal: BookingRefusal): never {
     throw ApiError.badRequest("VALIDATION_ERROR", "The end time must be after the start time.");
   }
   if (refusal.reason === "unavailable") throw unavailable();
+  if (refusal.reason === "subscription_required") {
+    throw ApiError.forbidden(
+      SUBSCRIPTION_REQUIRED,
+      subscriptionRequiredMessage("bookings"),
+    );
+  }
+  if (refusal.reason === "limit_reached") {
+    throw ApiError.conflict(
+      USAGE_LIMIT_REACHED,
+      limitReachedMessage("bookings", refusal.limit),
+    );
+  }
   throw ApiError.notFound("NOT_FOUND", "The requested resource was not found.");
 }
 

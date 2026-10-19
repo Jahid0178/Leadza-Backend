@@ -2,6 +2,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { prisma } from "../src/lib/prisma";
+import { grantPlan } from "./helpers/plan";
 
 /**
  * Booking API tests (FEATURES §34–35, IMPLEMENTATION_PLAN step 27, agent.md §19).
@@ -106,11 +107,19 @@ beforeAll(async () => {
     .send({ name: "Booking Test Plumbing", type: "Plumber" });
   businessA = created.body.data.business.id as string;
 
+  // Booking writes are metered (step 31): give business A a plan that includes
+  // appointments. The no-subscription refusal is covered in usage.test.ts.
+  await grantPlan(businessA, "pro");
+
   const foreign = await request(app)
     .post("/api/v1/businesses")
     .set("Cookie", outsider.cookie)
     .send({ name: "Booking Foreign Heating", type: "Heating" });
   businessB = foreign.body.data.business.id as string;
+
+  // Business B also has a plan, so its missing-hours refusal stays about the
+  // hours rather than a subscription. It still has no opening hours.
+  await grantPlan(businessB, "pro");
 
   await prisma.businessMember.create({
     data: { businessId: businessA, userId: staff.userId, role: "STAFF" },

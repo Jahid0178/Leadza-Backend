@@ -5,6 +5,7 @@ import {
   type AiProvider,
 } from "../src/agents/provider";
 import { prisma } from "../src/lib/prisma";
+import { grantPlan } from "./helpers/plan";
 
 /**
  * Lead agent integration tests (IMPLEMENTATION_PLAN step 20).
@@ -67,6 +68,9 @@ beforeAll(async () => {
   await prisma.businessMember.create({
     data: { businessId, userId, role: "OWNER" },
   });
+
+  // Usage limits (step 31): an active plan is required before the agent runs.
+  await grantPlan(businessId, "pro");
 
   // One priced service → only £90 may ever be stated.
   await prisma.service.create({

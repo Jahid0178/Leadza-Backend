@@ -66,6 +66,18 @@ export const createBookingTool = defineTool({
       if (result.reason === "unavailable") {
         return { ok: false, error: "That slot is no longer available — check again for another." };
       }
+      if (
+        result.reason === "subscription_required" ||
+        result.reason === "limit_reached"
+      ) {
+        return {
+          ok: false,
+          error:
+            "Online appointment booking isn't available right now. Tell the customer " +
+            "a member of the team will contact them to confirm a time — never claim a " +
+            "time is already booked.",
+        };
+      }
       return {
         ok: false,
         denied: true,

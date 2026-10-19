@@ -1,7 +1,9 @@
 import type { ConversationChannel } from "../../generated/prisma/client";
+import type { UsageMetric } from "../config/plans";
 import { prisma } from "../lib/prisma";
 import { publishMessageCreated } from "../realtime/hub";
 import { clearTyping, setTyping } from "../realtime/typing";
+import { checkAiRun } from "../services/usage.service";
 import { logger } from "../utils/logger";
 import { loadAgentContext } from "./context";
 import { enforceGuardrails, type GuardrailViolation } from "./guardrails";
@@ -41,6 +43,8 @@ export interface AgentRunResult {
   status: AgentRunStatus;
   /** Machine-readable reason for a skip/failure (logs + tests). */
   reason?: string;
+  /** Set when a run was refused by the plan's usage allowance (step 31). */
+  usageLimit?: { metric: UsageMetric; used: number; limit: number };
   messageId?: string;
   provider?: string;
   model?: string;
@@ -76,6 +80,28 @@ export async function runLeadAgent(
   // Nothing new from the customer → no unsolicited reply.
   if (!context.currentMessage) {
     return { status: "skipped", reason: "no_customer_message", provider: provider.name };
+  }
+
+  // 2. Plan pre-flight (FEATURES §48, step 31): an active subscription and the
+  // month's AI allowance are checked before any model call, so an exhausted
+  // plan never costs a provider request. The customer's message is already
+  // stored — staff can still answer it.
+  const aiCheck = await checkAiRun(context.conversation.businessId, conversationId);
+  if (!aiCheck.allowed) {
+    return {
+      status: "skipped",
+      reason: aiCheck.reason,
+      provider: provider.name,
+      ...(aiCheck.reason === "limit_reached"
+        ? {
+            usageLimit: {
+              metric: aiCheck.metric,
+              used: aiCheck.used,
+              limit: aiCheck.limit,
+            },
+          }
+        : {}),
+    };
   }
 
   const system = buildSystemPrompt(context);
@@ -173,7 +199,7 @@ export async function runLeadAgent(
     };
   }
 
-  // 2. Safety gate on the model's words before anything is stored (§25).
+  // 3. Safety gate on the model's words before anything is stored (§25).
   const guarded = enforceGuardrails(completion.text, {
     allowedPrices: context.services
       .filter((service) => service.price !== null)
@@ -195,7 +221,7 @@ export async function runLeadAgent(
     );
   }
 
-  // 3. Re-check the status and write atomically: a staff member may have taken
+  // 4. Re-check the status and write atomically: a staff member may have taken
   // the thread over while the model was thinking, and a human takeover must
   // always stop the AI (§26).
   const saved = await prisma.$transaction(async (tx) => {
@@ -232,7 +258,7 @@ export async function runLeadAgent(
   // (the widget keeps polling, §38).
   publishMessageCreated(context.conversation.businessId, saved);
 
-  // 4. Per-call usage/cost log (§49 — persisted in step 32).
+  // 5. Per-call usage/cost log (§49 — persisted in step 32).
   const estimatedCostUsd = estimateCostUsd(completion.model, completion.usage);
   logAiUsage({
     businessId: context.conversation.businessId,

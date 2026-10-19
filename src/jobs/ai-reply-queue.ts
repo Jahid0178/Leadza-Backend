@@ -36,6 +36,26 @@ const queue = new JobQueue<string>({
     }
 
     const result = await runLeadAgent(conversationId);
+
+    // A plan gap is not an error and must not be retried, but it should be
+    // visible: the customer's message is waiting and no AI reply will come
+    // until the business subscribes or upgrades (step 31).
+    if (
+      result.status === "skipped" &&
+      (result.reason === "subscription_required" ||
+        result.reason === "limit_reached")
+    ) {
+      logger.warn(
+        {
+          conversationId,
+          businessId: business?.businessId,
+          reason: result.reason,
+          usageLimit: result.usageLimit,
+        },
+        "AI reply skipped — plan usage limit",
+      );
+    }
+
     if (result.status === "failed") {
       throw new Error(
         `AI reply failed (${result.reason ?? "unknown"}) for conversation ${conversationId}`,

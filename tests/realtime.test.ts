@@ -18,6 +18,7 @@ import {
 } from "../src/realtime/server";
 import { createRealtimeToken, verifyRealtimeToken } from "../src/realtime/token";
 import { resetTyping } from "../src/realtime/typing";
+import { grantPlan } from "./helpers/plan";
 
 /**
  * Realtime layer (IMPLEMENTATION_PLAN step 38).
@@ -85,6 +86,9 @@ beforeAll(async () => {
     throw new Error(`business create failed: ${JSON.stringify(created.body)}`);
   }
   businessA = created.body.data.business.id as string;
+
+  // The suite runs the real agent (step 31): an active plan is required.
+  await grantPlan(businessA, "pro");
 
   // The API and the socket server share one HTTP server, exactly like boot.
   httpServer = createServer(app);
