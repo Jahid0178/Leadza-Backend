@@ -7,6 +7,83 @@
       "skillPath": "skills/authjs-skills/SKILL.md",
       "computedHash": "a9e50317bfff481c46c9b7199bbb952c9cd776dc02767e1c0f22232452bb0341"
     },
+    "paddle-billing-history": {
+      "source": "developer.paddle.com",
+      "sourceUrl": "https://developer.paddle.com/",
+      "sourceType": "well-known",
+      "computedHash": "544ac7e306ebd5d8e903f7074cc3b944c4cc0b71fea93bdd0b7d1789bc9e776d",
+      "wellKnownDigest": "sha256:c871c229980ab29625d153a6062f6402a9910da56ad64573f480d4d42e45d658"
+    },
+    "paddle-catalog-setup": {
+      "source": "developer.paddle.com",
+      "sourceUrl": "https://developer.paddle.com/",
+      "sourceType": "well-known",
+      "computedHash": "70584a8b8e87a0d45d371f81c9538ff02e7117da694c93d2422502f94dfe1ef6",
+      "wellKnownDigest": "sha256:df2090b528fc405dac69bd045ca7d8b25fdefb61d7834b07b15bd2f3af1c7657"
+    },
+    "paddle-checkout-web": {
+      "source": "developer.paddle.com",
+      "sourceUrl": "https://developer.paddle.com/",
+      "sourceType": "well-known",
+      "computedHash": "0da17868b27f597377ffc804acef087e2421cbb4c6583a550e4c9d40904951ea",
+      "wellKnownDigest": "sha256:98cc4533734fd0a2145481915d1cfa04598f85ef8cdfd4577bc9b95da3b2b841"
+    },
+    "paddle-customer-portal": {
+      "source": "developer.paddle.com",
+      "sourceUrl": "https://developer.paddle.com/",
+      "sourceType": "well-known",
+      "computedHash": "be5d1ffc55522f2407dc008219734755e29980a0818ba2a59fd60f989e41d189",
+      "wellKnownDigest": "sha256:eb817ddadc2bc1a359f04742f675e7b3a8012bf50669a04dc394162f953100aa"
+    },
+    "paddle-pricing-pages": {
+      "source": "developer.paddle.com",
+      "sourceUrl": "https://developer.paddle.com/",
+      "sourceType": "well-known",
+      "computedHash": "3e406afede6261b3a15dcc31ba977e236f560b5aa5500341cc51a574d9f157f4",
+      "wellKnownDigest": "sha256:00123ba88f8ef4ea9c395c34ae41666c7d816163d4cf181b862b521d641f1152"
+    },
+    "paddle-sandbox-testing": {
+      "source": "developer.paddle.com",
+      "sourceUrl": "https://developer.paddle.com/",
+      "sourceType": "well-known",
+      "computedHash": "91bb9ec4a04031baaf74fd212d22f415012d4290467004b79f5872f422ff2faf",
+      "wellKnownDigest": "sha256:f479fe5456456f8598bbe04e2db4d060ab7f73d40ebdc1f8615e1825adc62487"
+    },
+    "paddle-subscription-cancel": {
+      "source": "developer.paddle.com",
+      "sourceUrl": "https://developer.paddle.com/",
+      "sourceType": "well-known",
+      "computedHash": "78a505acb9948e780a6abf9f59a91d2134c50c1958f510e15d4b862e754a320f",
+      "wellKnownDigest": "sha256:764d8f111459a64838e4fa62d909d4365649940a6d4d0cce73527e3d8642f670"
+    },
+    "paddle-subscription-sync": {
+      "source": "developer.paddle.com",
+      "sourceUrl": "https://developer.paddle.com/",
+      "sourceType": "well-known",
+      "computedHash": "b02afd4fc8100793b021c242540fdf4d44f91cbd9ee31d8115dc6bf0bb0eeea6",
+      "wellKnownDigest": "sha256:8b54a76d86d7966a90b81e767cdcb0c932044e61bf2e1048ca5711fa2910827f"
+    },
+    "paddle-subscription-update": {
+      "source": "developer.paddle.com",
+      "sourceUrl": "https://developer.paddle.com/",
+      "sourceType": "well-known",
+      "computedHash": "1c2d236213467ee0a40317d2503c7449382a1ec4cabb632e385cee0e3d0cf648",
+      "wellKnownDigest": "sha256:d7b105bb7bd8c6d76a06a5a03fc1a8a2976277f48fa16c34af71261f604ec6a5"
+    },
+    "paddle-usage-based-billing": {
+      "source": "developer.paddle.com",
+      "sourceUrl": "https://developer.paddle.com/",
+      "sourceType": "well-known",
+      "computedHash": "d896fb85b87d2a1d2d0c8b6bf6dafb252fe601532cd37b8ad5372b1d8292a2d2",
+      "wellKnownDigest": "sha256:83f9d288782d148b7a247c75ff011314a52806ac2f7e951b7064ea764effdd61"
+    },
+    "paddle-webhooks": {
+      "source": "developer.paddle.com",
+      "sourceUrl": "https://developer.paddle.com/",
+      "sourceType": "well-known",
+      "computedHash": "c9403d55ccecf8153627720db9a5649eaa582a24f60bd0fa40874b1e03cc24c2",
+      "wellKnownDigest": "sha256:8945f255d79df3e4f1cd7038fe24fcd16f0eb473a1cf71deb91401e07a6b373d"
+    },
     "prisma-database-setup": {
       "source": "prisma/skills",
       "sourceType": "github",

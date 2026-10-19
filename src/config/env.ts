@@ -72,6 +72,20 @@ const envSchema = z.object({
   BOOKING_MIN_DURATION: z.coerce.number().int().positive().max(1440).default(15),
   /** Upper bound on how many days of availability are computed in one call. */
   BOOKING_MAX_RANGE_DAYS: z.coerce.number().int().positive().max(366).default(62),
+
+  /**
+   * Paddle billing (IMPLEMENTATION_PLAN Phase H, agent.md §12).
+   *
+   * `PADDLE_ENV` is required and has **no default**: the process must never
+   * silently fall back to the wrong Paddle account. Keys and webhook secrets
+   * for the inactive environment stay optional, so a sandbox process only
+   * needs the sandbox values and vice versa.
+   */
+  PADDLE_ENV: z.enum(["sandbox", "live"]),
+  PADDLE_SANDBOX_API_KEY: z.string().min(1).optional(),
+  PADDLE_LIVE_API_KEY: z.string().min(1).optional(),
+  PADDLE_WEBHOOK_SANDBOX_SECRET: z.string().min(1).optional(),
+  PADDLE_WEBHOOK_LIVE_SECRET: z.string().min(1).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

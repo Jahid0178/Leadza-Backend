@@ -17,6 +17,7 @@ import publicChatRoutes from "./public-chat.routes";
 import conversationRoutes from "./conversations.routes";
 import realtimeRoutes from "./realtime.routes";
 import analyticsRoutes from "./analytics.routes";
+import paddleRoutes from "./paddle.routes";
 
 const router = Router();
 
@@ -55,5 +56,7 @@ router.use("/conversations", conversationRoutes);
 // Short-lived socket credentials (IMPLEMENTATION_PLAN step 38).
 router.use("/realtime", realtimeRoutes);
 router.use("/analytics", analyticsRoutes);
+// Paddle billing: portal + status (the webhook is mounted on the app itself).
+router.use("/paddle", paddleRoutes);
 
 export default router;

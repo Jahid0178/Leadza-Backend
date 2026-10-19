@@ -4,6 +4,7 @@ import express from "express";
 import { pinoHttp } from "pino-http";
 import { authConfig } from "./auth/auth";
 import { env } from "./config/env";
+import { paddleWebhook } from "./controllers/paddle.controller";
 import { errorHandler, notFoundHandler } from "./middleware/error";
 import apiRoutes from "./routes";
 import widgetRoutes from "./routes/widget.routes";
@@ -36,6 +37,16 @@ export function createApp() {
     }
     cors({ origin: env.CORS_ORIGIN, credentials: true })(req, res, next);
   });
+
+  // Paddle webhooks are verified against the RAW body, so this route must be
+  // mounted before express.json() — a parsed body fails signature
+  // verification. (Phase H, Part 1.)
+  app.post(
+    "/api/v1/paddle/webhook",
+    express.raw({ type: "application/json" }),
+    paddleWebhook,
+  );
+
   app.use(express.json());
 
   // Structured request logs: request id, method, url, status, duration (§37).

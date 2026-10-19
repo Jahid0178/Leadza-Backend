@@ -193,6 +193,9 @@ model Business {
   conversations Conversation[]
   aiToolCalls AiToolCall[]
   bookings  Booking[]
+  /// Paddle billing account for this tenant (Phase H).
+  billingCustomer PaddleCustomer?
+  subscriptions   Subscription[]
 
   @@map("businesses")
 }
@@ -521,4 +524,52 @@ model AuditLog {
   @@index([resourceType, resourceId])
   @@index([action])
   @@map("audit_logs")
+}
+
+/// Paddle billing customer (IMPLEMENTATION_PLAN Phase H, agent.md §12).
+///
+/// Named `billing_customers` so it never collides with the existing
+/// `customers` table — the business's own end-customers (FEATURES §14).
+/// The Paddle id (`ctm_…`) is the primary key, so at-least-once webhook
+/// deliveries upsert onto the same row instead of inserting duplicates.
+model PaddleCustomer {
+  customerId String   @id @map("customer_id")
+  email      String
+  /// Tenant the paying account belongs to; null until a subscription or
+  /// checkout can link it (resolved from custom data or the email owner).
+  businessId String?  @unique @map("business_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  business      Business?      @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  subscriptions Subscription[]
+
+  @@index([businessId])
+  @@map("billing_customers")
+}
+
+/// Mirrored Paddle subscription state (IMPLEMENTATION_PLAN Phase H).
+///
+/// The Paddle id (`sub_…`) is the primary key, so out-of-order and duplicate
+/// deliveries converge on one row. Access is decided from `status` alone —
+/// a scheduled change never revokes access; only `canceled` does.
+model Subscription {
+  subscriptionId        String    @id @map("subscription_id")
+  customerId            String    @map("customer_id")
+  /// Tenant this subscription grants access to; null until linked.
+  businessId            String?   @map("business_id")
+  status                String
+  priceId               String    @map("price_id")
+  productId             String    @map("product_id")
+  scheduledChangeAction String?   @map("scheduled_change_action")
+  scheduledChangeAt     DateTime? @map("scheduled_change_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  customer PaddleCustomer @relation(fields: [customerId], references: [customerId], onDelete: Cascade)
+  business Business?      @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@index([businessId])
+  @@index([customerId])
+  @@map("subscriptions")
 }
