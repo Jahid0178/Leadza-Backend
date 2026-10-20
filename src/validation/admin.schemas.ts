@@ -98,6 +98,16 @@ export type ListAdminSubscriptionsQuery = z.infer<
   typeof listAdminSubscriptionsQuerySchema
 >;
 
+/** GET /api/v1/admin/usage — §49, current UTC month. */
+export const listAdminUsageQuerySchema = z.object({
+  /** Matches the business name. */
+  search: z.string().trim().max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+});
+
+export type ListAdminUsageQuery = z.infer<typeof listAdminUsageQuerySchema>;
+
 /* ------------------------------------------------------------------ *
  * Response shapes (agent.md §26) — never include passwordHash or any
  * field the admin UI does not need.
@@ -114,9 +124,10 @@ export interface AdminOverviewDto {
   bookings: number;
   /** Conversations the AI has actually replied in (§41 "AI conversations"). */
   aiConversations: number;
-  /** Phase H, steps 30–32 — nothing meters these yet. */
-  aiUsage: null;
-  estimatedAiCost: null;
+  /** Steps 30–32: AI usage exists, subscriptions are mirrored. */
+  aiUsage: { runs: number; tokens: number };
+  /** Estimated vendor cost in USD for the current UTC month (§49). */
+  estimatedAiCost: number;
   mrr: null;
 }
 
@@ -150,13 +161,15 @@ export interface AdminBusinessSummaryDto {
   owners: AdminBusinessOwnerDto[];
 }
 
-/** §42 business detail: the row plus every membership and recent audit. */
+/** §42 business detail: the row plus every membership, recent audit and this month's AI usage. */
 export interface AdminBusinessDetailDto extends AdminBusinessSummaryDto {
   address: string | null;
   website: string | null;
   description: string | null;
   members: AdminBusinessOwnerDto[];
   recentAudit: AdminAuditEntryDto[];
+  /** §49 AI usage for the current UTC month (step 32). */
+  aiUsage: AdminBusinessAiUsageDto;
 }
 
 /** §43 user row: the account plus where it belongs. */
@@ -242,4 +255,64 @@ export interface AdminSubscriptionPageDto {
   page: number;
   pageSize: number;
   summary: AdminSubscriptionSummaryDto;
+}
+
+/* ------------------------------------------------------------------ *
+ * §49 AI usage (step 32) — current UTC month, platform-wide
+ * ------------------------------------------------------------------ */
+
+/** Volume + cost totals, from `_sum` over `ai_usage`. */
+export interface AdminAiUsageTotalsDto {
+  /** Agent runs in the period. */
+  runs: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  /** USD — provider-reported where available, otherwise estimated. */
+  estimatedCost: number;
+}
+
+/** One business row of the /admin/usage table. */
+export interface AdminAiUsageBusinessDto extends AdminAiUsageTotalsDto {
+  business: {
+    id: string;
+    name: string;
+    status: BusinessStatusInput;
+  };
+  lastUsedAt: Date | null;
+}
+
+/** Platform totals, so the tiles never disagree with the table filter. */
+export interface AdminAiUsageSummaryDto extends AdminAiUsageTotalsDto {
+  /** Distinct businesses with at least one AI run in the period. */
+  businesses: number;
+}
+
+export interface AdminAiUsagePageDto {
+  usage: AdminAiUsageBusinessDto[];
+  summary: AdminAiUsageSummaryDto;
+  period: { start: string; end: string };
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** The per-model breakdown of one business's usage (per-business panel). */
+export interface AdminAiUsageModelDto {
+  provider: string;
+  model: string;
+  runs: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  /** USD — provider-reported where available, otherwise estimated. */
+  estimatedCost: number;
+}
+
+/** `aiUsage` block added to the §42 business detail (step 32). */
+export interface AdminBusinessAiUsageDto {
+  period: { start: string; end: string };
+  totals: AdminAiUsageTotalsDto;
+  lastUsedAt: Date | null;
+  byModel: AdminAiUsageModelDto[];
 }

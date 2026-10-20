@@ -257,6 +257,7 @@ describe("admin gate (§5, §60)", () => {
     ["get", "/api/v1/admin/users"],
     ["get", "/api/v1/admin/audit-logs"],
     ["get", "/api/v1/admin/subscriptions"],
+    ["get", "/api/v1/admin/usage"],
   ];
 
   it("rejects anonymous callers with 401", async () => {
@@ -292,7 +293,7 @@ describe("admin gate (§5, §60)", () => {
  * ------------------------------------------------------------------ */
 
 describe("platform overview (§41)", () => {
-  it("reports the headline numbers and leaves Phase H fields null", async () => {
+  it("reports the headline numbers including this month's AI usage", async () => {
     const res = await request(app).get("/api/v1/admin/overview").set("Cookie", admin.cookie);
     expect(res.status).toBe(200);
 
@@ -305,9 +306,12 @@ describe("platform overview (§41)", () => {
     expect(overview.bookings).toBeGreaterThanOrEqual(1);
     expect(overview.aiConversations).toBeGreaterThanOrEqual(1);
 
-    // Steps 30–32 own these — a placeholder must never read as a real zero.
-    expect(overview.aiUsage).toBeNull();
-    expect(overview.estimatedAiCost).toBeNull();
+    // Step 32 meters AI usage; MRR still has no source — a null stays honest.
+    expect(overview.aiUsage).toEqual({
+      runs: expect.any(Number),
+      tokens: expect.any(Number),
+    });
+    expect(overview.estimatedAiCost).toBeTypeOf("number");
     expect(overview.mrr).toBeNull();
   });
 
