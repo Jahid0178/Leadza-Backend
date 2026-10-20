@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { publishMessageCreated } from "../realtime/hub";
 import { clearTyping, setTyping } from "../realtime/typing";
 import { checkAiRun } from "../services/usage.service";
+import { recordAiUsage } from "../services/ai-usage.service";
 import { logger } from "../utils/logger";
 import { loadAgentContext } from "./context";
 import { enforceGuardrails, type GuardrailViolation } from "./guardrails";
@@ -15,7 +16,7 @@ import {
   type AiProvider,
   type AiUsage,
 } from "./provider";
-import { estimateCostUsd, logAiUsage } from "./usage";
+import { estimateCostUsd, addUsageTotals, roundUsd } from "./usage";
 import { executeToolCall } from "./tools/executor";
 import { agentToolDefinitions } from "./tools/registry";
 import type { ToolContext } from "./tools/types";
@@ -24,7 +25,7 @@ import type { ToolContext } from "./tools/types";
  * The lead agent run (FEATURES §23, §25, IMPLEMENTATION_PLAN step 20).
  *
  *   load context → gate on status → build prompt → model call
- *     → guardrails → re-check status → save → log usage
+ *     → guardrails → re-check status → save → record usage
  *
  * It is deliberately NOT called from an HTTP request: the public lead form
  * fires a background job (see ../jobs/ai-reply-queue.ts) so a slow model never
@@ -35,6 +36,9 @@ import type { ToolContext } from "./tools/types";
  *     takeover always wins the race (§26);
  *   - the guardrails run on the model's output before it is persisted, so an
  *     invented price can never reach a customer (§25).
+ *
+ * Usage tracking (§49, step 32) records one `ai_usage` row per run in the
+ * loop's `finally` — whatever outcome the run has — and can never throw.
  */
 
 export type AgentRunStatus = "replied" | "skipped" | "failed";
@@ -129,6 +133,14 @@ export async function runLeadAgent(
   /** Clock times a tool verified this run — the only times the AI may state. */
   const verifiedTimes = new Set<string>();
 
+  // Usage accounting (§49, step 32): every completion this run makes is added,
+  // so tool rounds are included, and the total is persisted once, after the
+  // loop — even when the run ends in a handoff, a blocked reply or a takeover.
+  let usageTotals: AiUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  let estimatedCostUsd = 0;
+  let providerRounds = 0;
+  let lastModel = "";
+
   // Show "AI is typing…" on the widget and dashboard while the model works.
   // Cleared in the `finally`, whatever this run does (§22).
   setTyping(context.conversation.businessId, conversationId, "AI");
@@ -136,6 +148,15 @@ export async function runLeadAgent(
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
       completion = await provider.complete({ system, messages, tools });
       if (!completion) break; // provider disabled — handled below
+
+      // Cost first, per call: a run could mix models, and each call's price
+      // is looked up against that call's model, then summed below.
+      providerRounds += 1;
+      usageTotals = addUsageTotals(usageTotals, completion.usage);
+      estimatedCostUsd = roundUsd(
+        estimatedCostUsd + estimateCostUsd(completion.model, completion.usage),
+      );
+      lastModel = completion.model;
 
       const calls = completion.toolCalls ?? [];
       if (calls.length === 0) break; // the model answered directly
@@ -172,6 +193,20 @@ export async function runLeadAgent(
     return { status: "failed", reason: "provider_error", provider: provider.name };
   } finally {
     clearTyping(context.conversation.businessId, conversationId, "AI");
+    // Persist whatever the provider consumed (§49, step 32) — once, after the
+    // loop, on every exit path (error included). Non-throwing by contract.
+    if (providerRounds > 0) {
+      await recordAiUsage({
+        businessId: context.conversation.businessId,
+        conversationId,
+        provider: provider.name,
+        model: lastModel,
+        inputTokens: usageTotals.inputTokens,
+        outputTokens: usageTotals.outputTokens,
+        totalTokens: usageTotals.totalTokens,
+        estimatedCostUsd,
+      });
+    }
   }
 
   if (!completion) {
@@ -185,7 +220,8 @@ export async function runLeadAgent(
       status: "skipped",
       reason: "handoff_requested",
       provider: provider.name,
-      model: completion.model,
+      model: lastModel,
+      usage: usageTotals,
     };
   }
 
@@ -195,7 +231,8 @@ export async function runLeadAgent(
       status: "skipped",
       reason: "empty_reply",
       provider: provider.name,
-      model: completion.model,
+      model: lastModel,
+      usage: usageTotals,
     };
   }
 
@@ -258,24 +295,14 @@ export async function runLeadAgent(
   // (the widget keeps polling, §38).
   publishMessageCreated(context.conversation.businessId, saved);
 
-  // 5. Per-call usage/cost log (§49 — persisted in step 32).
-  const estimatedCostUsd = estimateCostUsd(completion.model, completion.usage);
-  logAiUsage({
-    businessId: context.conversation.businessId,
-    conversationId,
-    messageId: saved.id,
-    provider: provider.name,
-    model: completion.model,
-    usage: completion.usage,
-    estimatedCostUsd,
-  });
-
+  // 5. Run totals (§49, step 32): the usage row was already persisted in the
+  // loop's `finally`; report the run's own spending on the result too.
   return {
     status: "replied",
     messageId: saved.id,
     provider: provider.name,
-    model: completion.model,
-    usage: completion.usage,
+    model: lastModel,
+    usage: usageTotals,
     guardrailViolations: guarded.violations,
   };
 }

@@ -149,6 +149,8 @@ interface RawCompletion {
     promptTokens?: unknown;
     completionTokens?: unknown;
     totalTokens?: unknown;
+    /** OpenRouter reports the request's own cost in USD when usage is returned. */
+    cost?: unknown;
   };
 }
 
@@ -156,6 +158,17 @@ interface RawCompletion {
 function toTokenCount(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
+
+/**
+ * Coerce OpenRouter's `usage.cost` to a non-negative USD number. Missing,
+ * malformed or negative values mean "not reported" (undefined), so the cost
+ * falls back to the estimate in ../usage.ts rather than storing a guess.
+ */
+function toReportedCostUsd(value: unknown): number | undefined {
+  const n = typeof value === "string" ? Number(value) : value;
+  if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return undefined;
+  return Math.round(n * 1_000_000) / 1_000_000;
 }
 
 /** Best-effort HTTP status from an SDK error, for logging only. */
@@ -198,12 +211,23 @@ function parseCompletion(raw: unknown, fallbackModel: string): AiCompletion {
   const inputTokens = toTokenCount(payload.usage?.promptTokens);
   const outputTokens = toTokenCount(payload.usage?.completionTokens);
   const totalTokens = toTokenCount(payload.usage?.totalTokens) || inputTokens + outputTokens;
+  const reportedCostUsd = toReportedCostUsd(payload.usage?.cost);
   // Some models omit usage; approximate from characters so cost tracking still
   // has a number (~4 chars/token is the usual rule of thumb).
   const usage: AiUsage =
     totalTokens === 0
-      ? { inputTokens: 0, outputTokens: Math.ceil(text.length / 4), totalTokens: Math.ceil(text.length / 4) }
-      : { inputTokens, outputTokens, totalTokens };
+      ? {
+          inputTokens: 0,
+          outputTokens: Math.ceil(text.length / 4),
+          totalTokens: Math.ceil(text.length / 4),
+          ...(reportedCostUsd !== undefined ? { reportedCostUsd } : {}),
+        }
+      : {
+          inputTokens,
+          outputTokens,
+          totalTokens,
+          ...(reportedCostUsd !== undefined ? { reportedCostUsd } : {}),
+        };
 
   return {
     text,

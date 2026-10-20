@@ -67,6 +67,11 @@ export interface AiUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /**
+   * The provider's own reported cost in USD, when its response carries one
+   * (OpenRouter does). Preferred over a price-table estimate wherever present.
+   */
+  reportedCostUsd?: number;
 }
 
 /** A completed model turn. */

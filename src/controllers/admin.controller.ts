@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { readAdminAiUsage } from "../services/ai-usage.service";
 import {
   findBusinessForAdmin,
   findUserForAdmin,
@@ -19,6 +20,7 @@ import {
   changeUserStatusSchema,
   listAdminBusinessesQuerySchema,
   listAdminSubscriptionsQuerySchema,
+  listAdminUsageQuerySchema,
   listAdminUsersQuerySchema,
   listAuditLogsQuerySchema,
 } from "../validation/admin.schemas";
@@ -209,4 +211,14 @@ export async function listSubscriptions(req: Request, res: Response) {
       summary: page.summary,
     }),
   );
+}
+
+/**
+ * GET /api/v1/admin/usage — §49 AI usage, per business, for the current UTC
+ * month (step 32). Read-only reporting: the limits themselves are enforced by
+ * `services/usage.service.ts` at the AI/booking paths, never in the frontend.
+ */
+export async function listUsage(req: Request, res: Response) {
+  const query = parseAfterAuth(listAdminUsageQuerySchema, req.query);
+  res.json(apiSuccess(await readAdminAiUsage(query)));
 }

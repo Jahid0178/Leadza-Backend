@@ -192,6 +192,7 @@ model Business {
   leads     Lead[]
   conversations Conversation[]
   aiToolCalls AiToolCall[]
+  aiUsage   AiUsage[]
   bookings  Booking[]
   /// Paddle billing account for this tenant (Phase H).
   billingCustomer PaddleCustomer?
@@ -392,6 +393,7 @@ model Conversation {
   assignedTo User?     @relation("ConversationAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   messages   Message[]
   aiToolCalls AiToolCall[]
+  aiUsage    AiUsage[]
 
   @@index([businessId])
   @@index([businessId, status])
@@ -450,6 +452,35 @@ model AiToolCall {
   @@index([conversationId])
   @@index([tool])
   @@map("ai_tool_calls")
+}
+
+/// AI usage tracking (FEATURES §49, IMPLEMENTATION_PLAN step 32).
+/// One row per agent run: provider, model, the tokens the run consumed (summed
+/// across its tool rounds) and the USD cost — the provider's own reported cost
+/// when it returns one, otherwise the estimate from `agents/usage.ts`.
+/// Internal cost monitoring only: this is the vendor's cost, never what a
+/// business is billed, and it is exposed to platform admins only.
+model AiUsage {
+  id             String   @id @default(cuid())
+  businessId     String
+  conversationId String
+  provider       String
+  model          String
+  inputTokens    Int      @default(0)
+  outputTokens   Int      @default(0)
+  totalTokens    Int      @default(0)
+  /// USD. Provider-reported when available, otherwise a price-table estimate;
+  /// 0 for an unpriced model rather than a guess.
+  estimatedCost  Float    @default(0)
+  createdAt      DateTime @default(now())
+
+  business     Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([businessId, createdAt])
+  @@index([conversationId])
+  @@index([createdAt])
+  @@map("ai_usage")
 }
 
 /// A scheduled appointment (FEATURES §35, IMPLEMENTATION_PLAN step 27).

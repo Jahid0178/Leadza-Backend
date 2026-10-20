@@ -1,5 +1,8 @@
 import { prisma } from "../lib/prisma";
 import { recordAudit, type AuditAction } from "../services/audit.service";
+import { readBusinessAiUsage } from "../services/ai-usage.service";
+import { currentUsagePeriod } from "../services/usage.service";
+import { sumAiUsageForPlatform } from "./ai-usage.repository";
 import type {
   AdminAuditEntryDto,
   AdminBusinessDetailDto,
@@ -191,7 +194,7 @@ export async function listBusinessesForAdmin(
   };
 }
 
-/** §42 business detail: profile, members and the tenant's recent audit trail. */
+/** §42 business detail: profile, members, recent audit, this month's AI usage. */
 export async function findBusinessForAdmin(
   businessId: string,
 ): Promise<AdminBusinessDetailDto | null> {
@@ -201,11 +204,14 @@ export async function findBusinessForAdmin(
   });
   if (!row) return null;
 
-  const recentAudit = await prisma.auditLog.findMany({
-    where: { businessId },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  });
+  const [recentAudit, aiUsage] = await Promise.all([
+    prisma.auditLog.findMany({
+      where: { businessId },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+    readBusinessAiUsage(businessId),
+  ]);
 
   return {
     ...toBusinessSummary(row),
@@ -214,9 +220,9 @@ export async function findBusinessForAdmin(
     description: row.description,
     members: toMemberDtos(row.members),
     recentAudit: recentAudit.map(toAuditDto),
+    aiUsage,
   };
 }
-
 export type SetBusinessStatusResult =
   | {
       ok: true;
@@ -542,9 +548,10 @@ function startOfUtcToday(): Date {
 }
 
 /**
- * §41 platform-wide statistics. AI usage, estimated cost and MRR stay null
- * until Phase H (steps 30–32) adds metering and billing — the UI shows them as
- * unavailable rather than as a misleading zero.
+ * §41 platform-wide statistics. AI usage and estimated cost come from the
+ * persisted `ai_usage` rows for the current UTC month (step 32); MRR still has
+ * no source, so it stays null and the UI shows it as unavailable rather than
+ * as a misleading zero.
  */
 export async function getPlatformOverview(): Promise<AdminOverviewDto> {
   const since = startOfUtcToday();
@@ -559,6 +566,7 @@ export async function getPlatformOverview(): Promise<AdminOverviewDto> {
     qualifiedLeads,
     bookings,
     aiConversations,
+    aiUsage,
   ] = await Promise.all([
     prisma.business.count(),
     prisma.business.count({ where: { status: "ACTIVE" } }),
@@ -570,6 +578,7 @@ export async function getPlatformOverview(): Promise<AdminOverviewDto> {
     prisma.lead.count({ where: { status: { in: ["QUALIFIED", "BOOKED", "WON"] } } }),
     prisma.booking.count(),
     prisma.conversation.count({ where: { messages: { some: { sender: "AI" } } } }),
+    sumAiUsageForPlatform(currentUsagePeriod()),
   ]);
 
   return {
@@ -583,8 +592,8 @@ export async function getPlatformOverview(): Promise<AdminOverviewDto> {
     qualifiedLeads,
     bookings,
     aiConversations,
-    aiUsage: null,
-    estimatedAiCost: null,
+    aiUsage: { runs: aiUsage.runs, tokens: aiUsage.totalTokens },
+    estimatedAiCost: aiUsage.estimatedCost,
     mrr: null,
   };
 }

@@ -36,4 +36,7 @@ router.get("/audit-logs", adminController.listAuditLogs);
 /** Phase H billing — read-only mirror of Paddle subscriptions (all tenants). */
 router.get("/subscriptions", adminController.listSubscriptions);
 
+/** Phase H AI usage — §49 cost + volume per business, this month (step 32). */
+router.get("/usage", adminController.listUsage);
+
 export default router;
