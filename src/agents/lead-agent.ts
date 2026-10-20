@@ -142,8 +142,10 @@ export async function runLeadAgent(
   let lastModel = "";
 
   // Show "AI is typing…" on the widget and dashboard while the model works.
-  // Cleared in the `finally`, whatever this run does (§22).
-  setTyping(context.conversation.businessId, conversationId, "AI");
+  // Cleared in the `finally`, whatever this run does (§22). The explicit TTL
+  // outlives the 8s default: a free-model reasoning call can easily beat 8s,
+  // and a mid-call expiry looks to the visitor like the chat died.
+  setTyping(context.conversation.businessId, conversationId, "AI", 45_000);
   try {
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
       completion = await provider.complete({ system, messages, tools });
