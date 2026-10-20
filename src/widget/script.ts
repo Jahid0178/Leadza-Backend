@@ -18,9 +18,11 @@
  * Design constraints, on purpose:
  * - zero dependencies, plain ES5-flavoured JS: it must run on any site
  *   (old WordPress, plain HTML, anything) without a build step;
- * - no cookies, no localStorage, no third-party anything: the chat thread
- *   token lives in a JS variable, so a page reload simply starts a fresh
- *   thread — no persistent identifier, minimal GDPR surface;
+ * - no cookies, no localStorage, no third-party anything: the only value ever
+ *   persisted is the server-minted random thread token (plus the name the
+ *   visitor just typed) in sessionStorage, so a reload resumes the same chat
+ *   and closing the tab forgets it — no persistent identifier, minimal GDPR
+ *   surface;
  * - DOM built with createElement + textContent only (no innerHTML with
  *   data), so a hostile message string can never inject markup;
  * - data-api overrides the API origin for split deployments; by default
@@ -121,6 +123,51 @@ export const WIDGET_SCRIPT = `(function () {
       return result.payload.error.message;
     }
     return fallback;
+  }
+
+  /* ---------- thread persistence (sessionStorage, §22) ---------- */
+
+  /**
+   * A reload used to orphan the thread: the token lived only in a JS
+   * variable, so the visitor landed back on the details form and a fresh
+   * lead. The thread now survives inside the tab's sessionStorage — the
+   * only value ever stored is the server's random opaque token (plus the
+   * name the visitor just typed), and closing the tab forgets everything.
+   */
+
+  /** Key is scoped per business, so two embeds never trade tokens. */
+  var THREAD_KEY = "ldz:chat:" + businessId;
+
+  function saveThread(conversation, threadToken, name) {
+    try {
+      window.sessionStorage.setItem(
+        THREAD_KEY,
+        JSON.stringify({ conversationId: conversation, token: threadToken, visitorName: name })
+      );
+    } catch (err) {
+      /* storage unavailable (private mode, disabled) — the chat still works in memory */
+    }
+  }
+
+  /** The saved thread, or null when absent or unreadable. */
+  function readThread() {
+    try {
+      var raw = window.sessionStorage.getItem(THREAD_KEY);
+      if (!raw) return null;
+      var saved = JSON.parse(raw);
+      if (saved && saved.conversationId && saved.token) return saved;
+    } catch (err) {
+      /* corrupt entry — treat as never saved */
+    }
+    return null;
+  }
+
+  function clearThread() {
+    try {
+      window.sessionStorage.removeItem(THREAD_KEY);
+    } catch (err) {
+      /* ignore — nothing to forget */
+    }
   }
 
   /* ---------- shared qualification fields (§15, §17) ---------- */
@@ -344,6 +391,8 @@ export const WIDGET_SCRIPT = `(function () {
         conversationId = result.payload.data.conversationId;
         token = result.payload.data.token;
         visitorName = data.name;
+        // Remember the thread so a reload resumes it instead of starting over.
+        saveThread(conversationId, token, visitorName);
         // The details stay in the hidden form: if the session expires, the
         // visitor can restart the chat without retyping anything.
         setView("chat");
@@ -453,6 +502,7 @@ export const WIDGET_SCRIPT = `(function () {
           stopPolling();
           conversationId = null;
           token = null;
+          clearThread();
           setBusy(false);
           setView("details");
           setDetailsError("This chat session expired. Start a new chat and we will pick it up.");
@@ -514,12 +564,14 @@ export const WIDGET_SCRIPT = `(function () {
         if ((result.status === 200 || result.status === 201) && result.payload && result.payload.success) {
           conversationId = result.payload.data.conversationId;
           token = result.payload.data.token;
+          saveThread(conversationId, token, visitorName);
           startPolling();
           return;
         }
         if (result.status === 403) {
           conversationId = null;
           token = null;
+          clearThread();
           setView("details");
           setDetailsError("This chat session expired. Start a new chat and we will pick it up.");
           setBusy(false);
@@ -584,6 +636,44 @@ export const WIDGET_SCRIPT = `(function () {
 
   /* ---------- boot ---------- */
 
+  /**
+   * Jump straight back into a chat this tab already started. The saved
+   * token is validated with one token-gated read; the poll then renders
+   * the full history. A rejected token (thread gone) is forgotten quietly,
+   * while a network failure keeps the saved thread for the next attempt.
+   */
+  function resumeStoredThread() {
+    var saved = readThread();
+    if (!saved) {
+      setView("details");
+      return;
+    }
+    request(
+      chatBase + "/" + encodeURIComponent(saved.conversationId) + "/messages",
+      { headers: { "x-chat-token": saved.token } }
+    )
+      .then(function (result) {
+        if (result.status === 200 && result.payload && result.payload.success) {
+          conversationId = saved.conversationId;
+          token = saved.token;
+          visitorName = saved.visitorName || "";
+          if (visitorName) {
+            chatSub.textContent = "You are chatting as " + visitorName + ".";
+          }
+          setView("chat");
+          startPolling();
+          return;
+        }
+        clearThread();
+        setView("details");
+      })
+      .catch(function () {
+        // Server unreachable — not the thread's fault. Keep it saved so a
+        // reload after connectivity returns still resumes.
+        setView("details");
+      });
+  }
+
   // Ask the backend whether the AI is available; the chat is optional, so any
   // failure (or an off switch) quietly leaves the working enquiry form.
   setView("details");
@@ -606,7 +696,9 @@ export const WIDGET_SCRIPT = `(function () {
         result.payload.success &&
         result.payload.data.aiEnabled
       ) {
-        setView("details");
+        // A thread saved earlier in this tab session resumes here; a fresh
+        // visitor gets the details form.
+        resumeStoredThread();
         return;
       }
       setView("form");
