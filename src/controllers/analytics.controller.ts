@@ -1,8 +1,12 @@
 import type { Request, Response } from "express";
-import { getDashboardForBusiness } from "../repositories/analytics.repository";
+import {
+  getDashboardForBusiness,
+  getStatsForBusiness,
+  type AnalyticsRange,
+} from "../repositories/analytics.repository";
 import { ApiError } from "../utils/api-error";
 import { apiSuccess } from "../utils/api-response";
-import { dashboardQuerySchema } from "../validation/analytics.schemas";
+import { dashboardQuerySchema, statsQuerySchema } from "../validation/analytics.schemas";
 
 /**
  * Analytics controller (FEATURES §28, IMPLEMENTATION_PLAN step 17).
@@ -47,4 +51,35 @@ export async function getDashboard(req: Request, res: Response) {
   }
 
   res.json(apiSuccess({ dashboard: summary }));
+}
+
+/**
+ * GET /api/v1/analytics/stats — the /dashboard/analytics read (FEATURES §50,
+ * IMPLEMENTATION_PLAN step 33): funnel + response time + sources + daily
+ * volume for one business and one optional ?days window. Same authorization
+ * rule as the dashboard — member-wide read, foreign businessId answers 404.
+ */
+export async function getStats(req: Request, res: Response) {
+  const userId = requireUserId(req);
+
+  const parsed = statsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const field = issue?.path.join(".");
+    throw ApiError.badRequest(
+      "VALIDATION_ERROR",
+      field ? `${field}: ${issue?.message}` : (issue?.message ?? "Invalid query."),
+    );
+  }
+
+  const stats = await getStatsForBusiness(
+    userId,
+    parsed.data.businessId,
+    parsed.data.days as AnalyticsRange,
+  );
+  if (!stats) {
+    throw ApiError.notFound("NOT_FOUND", "The requested resource was not found.");
+  }
+
+  res.json(apiSuccess({ stats }));
 }
