@@ -35,6 +35,22 @@ interface QueueItem<T> {
   key: string;
 }
 
+/** Cumulative counters (step 36) — load tests and observability. */
+export interface JobQueueStats {
+  /** Jobs waiting to be picked up. */
+  pending: number;
+  /** Jobs in flight right now. */
+  active: number;
+  /** Runs that finished successfully (a key processed twice via rerun counts twice). */
+  completed: number;
+  /** Failed attempts that will be retried. */
+  retries: number;
+  /** Jobs that exhausted every allowed attempt. */
+  failed: number;
+  /** Follow-up runs `enqueueLatest` scheduled after a key was busy. */
+  reruns: number;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -49,6 +65,7 @@ export class JobQueue<T> {
     JobQueueOptions<T>;
   private active = 0;
   private running = false;
+  private readonly counts = { completed: 0, retries: 0, failed: 0, reruns: 0 };
 
   constructor(options: JobQueueOptions<T>) {
     this.options = {
@@ -67,6 +84,18 @@ export class JobQueue<T> {
   /** Jobs waiting to be picked up (not counting those in flight). */
   get pending(): number {
     return this.items.length;
+  }
+
+  /** Cumulative counters — step 36 observability and load tests. */
+  stats(): JobQueueStats {
+    return {
+      pending: this.items.length,
+      active: this.active,
+      completed: this.counts.completed,
+      retries: this.counts.retries,
+      failed: this.counts.failed,
+      reruns: this.counts.reruns,
+    };
   }
 
   /**
@@ -160,6 +189,7 @@ export class JobQueue<T> {
     const payload = this.rerun.get(key);
     if (payload === undefined) return;
     this.rerun.delete(key);
+    this.counts.reruns += 1;
     this.activeKeys.add(key);
     this.items.push({ payload, key });
   }
@@ -169,6 +199,7 @@ export class JobQueue<T> {
     for (let attempt = 1; ; attempt += 1) {
       try {
         await handler(item.payload);
+        this.counts.completed += 1;
         return;
       } catch (err) {
         if (attempt >= maxAttempts) {
@@ -176,12 +207,14 @@ export class JobQueue<T> {
             { err, job: name, key: item.key, attempts: attempt },
             "job failed permanently",
           );
+          this.counts.failed += 1;
           return;
         }
         logger.warn(
           { err, job: name, key: item.key, attempt },
           "job failed — retrying",
         );
+        this.counts.retries += 1;
         if (retryDelayMs > 0) await sleep(retryDelayMs * attempt);
       }
     }

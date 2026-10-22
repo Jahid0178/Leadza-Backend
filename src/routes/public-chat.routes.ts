@@ -1,7 +1,6 @@
-import { rateLimit } from "express-rate-limit";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import * as publicChatController from "../controllers/public-chat.controller";
-import { apiError } from "../utils/api-response";
+import { rateLimiter } from "../middleware/rate-limit";
 
 /**
  * /api/v1/chat/public — the unauthenticated website chat (FEATURES §22,
@@ -9,8 +8,8 @@ import { apiError } from "../utils/api-response";
  *
  * Mounted before the authed routers so Express matches the public path first.
  * No requireAuth: the caller is an anonymous visitor. Thread reads are gated
- * by a per-thread access token header; abuse is bounded by the honeypot plus a
- * per-IP write limit (§52).
+ * by a per-thread access token header; abuse is bounded by the honeypot plus
+ * per-IP limits through the shared limiter factory (§52, step 36).
  */
 const router = Router();
 
@@ -48,24 +47,14 @@ router.use(embedCors);
 /**
  * Writes are limited (a chat is chattier than a form, hence the larger budget
  * than the lead form's 10). Reads are polling-heavy — a widget checks a few
- * times per reply — so they are intentionally not limited here; the token gate
- * plus step 36's hardening cover abuse.
+ * times per reply — so they are intentionally not limited here; the token
+ * gate plus the shared-store limits cover abuse.
  */
-const writeLimiter = rateLimit({
+const writeLimiter = rateLimiter({
+  name: "chat-write",
   windowMs: 10 * 60 * 1000,
   limit: 40,
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (_req, res) => {
-    res
-      .status(429)
-      .json(
-        apiError(
-          "RATE_LIMITED",
-          "Too many messages from this address. Please wait a moment and try again.",
-        ),
-      );
-  },
+  message: "Too many messages from this address. Please wait a moment and try again.",
 });
 
 /** GET /status — AI availability + business name for the widget header. */
@@ -76,14 +65,11 @@ router.get("/:businessRef/status", publicChatController.getChatStatus);
  * they get their own generous budget — the message limiter (40 / 10 min) is
  * far too low for someone mid-sentence.
  */
-const typingLimiter = rateLimit({
+const typingLimiter = rateLimiter({
+  name: "chat-typing",
   windowMs: 10 * 60 * 1000,
   limit: 400,
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (_req, res) => {
-    res.status(429).end();
-  },
+  message: "Too many updates from this address. Please wait a moment and try again.",
 });
 
 /** POST /:businessRef/typing — the visitor is typing (ephemeral, §22). */

@@ -15,11 +15,20 @@ import { WIDGET_SCRIPT } from "../widget/script";
  */
 const router = Router();
 
+/**
+ * CORS + CORP for the embedded script: any site may include it, so the
+ * resource must be fetchable cross-origin. helmet sets
+ * `Cross-Origin-Resource-Policy: same-origin` app-wide (step 36), which is
+ * right for the JSON API but would block a cross-site classic `<script>` —
+ * classic scripts are no-cors requests, so CORP applies. The widget route
+ * overrides it for its own response only.
+ */
 router.get("/widget.js", (_req, res) => {
   res
     .status(200)
     .type("application/javascript; charset=utf-8")
     .set("cache-control", "public, max-age=300")
+    .set("cross-origin-resource-policy", "cross-origin")
     .send(WIDGET_SCRIPT);
 });
 

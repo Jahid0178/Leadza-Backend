@@ -9,7 +9,15 @@ export const logger = pino({
   level: env.LOG_LEVEL,
   base: { service: "server" },
   redact: {
-    paths: ["req.headers.authorization", "req.headers.cookie", "*.password", "*.passwordHash"],
+    paths: [
+      "req.headers.authorization",
+      "req.headers.cookie",
+      // Public chat thread credentials ride this header (step 19) — same
+      // treatment as the session cookie above (agent.md §37).
+      'req.headers["x-chat-token"]',
+      "*.password",
+      "*.passwordHash",
+    ],
     censor: "[REDACTED]",
   },
 });

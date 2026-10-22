@@ -1,9 +1,10 @@
 import { ExpressAuth } from "@auth/express";
 import cors from "cors";
 import express from "express";
+import helmet from "helmet";
 import { pinoHttp } from "pino-http";
 import { authConfig } from "./auth/auth";
-import { env } from "./config/env";
+import { env, TRUST_PROXY_HOPS } from "./config/env";
 import { paddleWebhook } from "./controllers/paddle.controller";
 import { errorHandler, notFoundHandler } from "./middleware/error";
 import apiRoutes from "./routes";
@@ -13,9 +14,19 @@ import { logger } from "./utils/logger";
 export function createApp() {
   const app = express();
 
-  // Needed to detect the original protocol behind a TLS-terminating proxy.
-  app.set("trust proxy", env.NODE_ENV === "production");
+  // Trust exactly the documented proxy chain (step 36): trusting every hop
+  // would let a client forge `X-Forwarded-For` and defeat the per-IP rate
+  // limiters (§52). TRUST_PROXY_HOPS defaults to 1 in production (behind one
+  // TLS-terminating proxy), 0 when served directly.
+  app.set("trust proxy", TRUST_PROXY_HOPS);
   app.disable("x-powered-by");
+
+  // Security headers (§52, step 36): HSTS, nosniff, frame protection and
+  // referrer policy from helmet. CSP and COEP stay off — this process serves
+  // JSON and /widget.js, and the widget answers to whatever page embeds it,
+  // so a restrictive default here could only break nothing while implying a
+  // policy the API does not enforce.
+  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 
   // Credentialed CORS for the Next.js frontend (agent.md §10). The public
   // lead form (§21) is excluded here: it is submitted from the business's

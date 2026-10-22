@@ -9,6 +9,13 @@ export default defineConfig({
     fileParallelism: false,
     // Pin env the suite depends on: dotenv never overrides variables that are
     // already set, so an ambient shell PORT (e.g. 0) would fail env.ts at import.
-    env: { PORT: "4000", LOG_LEVEL: "fatal" },
+    // The Upstash pair is deliberately blanked: tests use the in-memory rate
+    // limit store so counters are per-process and no network store is touched.
+    env: {
+      PORT: "4000",
+      LOG_LEVEL: "fatal",
+      UPSTASH_REDIS_REST_URL: "",
+      UPSTASH_REDIS_REST_TOKEN: "",
+    },
   },
 });

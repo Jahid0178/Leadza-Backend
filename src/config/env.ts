@@ -86,7 +86,42 @@ const envSchema = z.object({
   PADDLE_LIVE_API_KEY: z.string().min(1).optional(),
   PADDLE_WEBHOOK_SANDBOX_SECRET: z.string().min(1).optional(),
   PADDLE_WEBHOOK_LIVE_SECRET: z.string().min(1).optional(),
+
+  /**
+   * Shared rate-limit store (IMPLEMENTATION_PLAN step 36). With both Upstash
+   * values, express-rate-limit counters live in Upstash Redis (REST API) and
+   * survive restarts / are shared across instances; missing values keep the
+   * built-in per-process store so dev and the test suite stay hermetic.
+   */
+  UPSTASH_REDIS_REST_URL: blankToOptional(z.string().url()),
+  UPSTASH_REDIS_REST_TOKEN: blankToOptional(z.string().min(1)),
+
+  /**
+   * How many reverse-proxy hops sit in front of this process and terminate
+   * the client's connection (step 36). Trusting the whole chain (`true`) would
+   * let a client spoof `X-Forwarded-For` and defeat per-IP limiters; a hop
+   * count trusts only that many. Defaults: 1 behind a production proxy,
+   * 0 (direct) otherwise. Override explicitly per deployment topology.
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).optional(),
+
+  /**
+   * Auth route budgets (step 52, step 36): the anonymous /auth POST endpoints
+   * are the credential-stuffing door, so they are rate limited. Defaults are
+   * generous for humans and tight enough to blunt spraying.
+   */
+  AUTH_RATE_WINDOW_MINUTES: z.coerce.number().int().positive().max(1440).default(15),
+  AUTH_LOGIN_RATE_LIMIT: z.coerce.number().int().positive().default(20),
+  AUTH_REGISTER_RATE_LIMIT: z.coerce.number().int().positive().default(10),
 });
+
+/** Empty-string env values mean "unset" (dotenv keeps placeholders blank). */
+function blankToOptional<TSchema extends z.ZodType>(schema: TSchema) {
+  return z.preprocess((value) => {
+    if (typeof value === "string" && value.trim().length === 0) return undefined;
+    return value;
+  }, schema.optional());
+}
 
 const parsed = envSchema.safeParse(process.env);
 
@@ -98,4 +133,32 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const env = parsed.data;
+const parsedEnv = parsed.data;
+
+/** Resolved proxy trust: explicit hops, else one behind a production proxy. */
+export const TRUST_PROXY_HOPS =
+  parsedEnv.TRUST_PROXY_HOPS ?? (parsedEnv.NODE_ENV === "production" ? 1 : 0);
+
+/**
+ * Secrets audit (§52, step 36): refuse obviously placeholder secrets in
+ * production. A dev default that reaches a live deployment is a breach-in-
+ * waiting, and the JWT secret signs every session, so it is checked here —
+ * length was already validated by the schema.
+ */
+const PLACEHOLDER_SECRET = /(?:changeme|change-me|placeholder|example|dev-?secret|super-?secret|please-change|fixme)/i;
+
+function isWeakSecret(value: string): boolean {
+  if (PLACEHOLDER_SECRET.test(value)) return true;
+  // All one repeated character — not entropy, just padding.
+  return new Set(value.split("")).size === 1;
+}
+
+if (parsedEnv.NODE_ENV === "production" && isWeakSecret(parsedEnv.AUTH_SECRET)) {
+  console.error(
+    "FATAL: AUTH_SECRET looks like a placeholder value. Generate a real secret " +
+      "(https://generate-secret.vercel.app/32) and set AUTH_SECRET before serving production traffic.",
+  );
+  process.exit(1);
+}
+
+export const env = parsedEnv;

@@ -14,7 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "queue:load-test": "tsx scripts/queue-load-test.ts"
   },
   "dependencies": {
     "@auth/core": "^0.41.3",
@@ -23,15 +24,18 @@
     "@paddle/paddle-node-sdk": "^3.10.0",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
+    "@upstash/redis": "^1.39.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
     "pino-http": "^11.0.0",
+    "rate-limit-redis": "^6.0.1",
     "socket.io": "^4.8.4",
     "zod": "^4.6.5"
   },
