@@ -8,6 +8,7 @@ import type {
   MessageSender,
 } from "../validation/conversation.schemas";
 import { prisma } from "../lib/prisma";
+import { recordAnalyticsEvent } from "./analytics-events.repository";
 import {
   publishConversationCreated,
   publishConversationUpdated,
@@ -316,6 +317,23 @@ export async function changeConversationStatusForUser(
     where: { id: conversationId },
     data: { status: to },
   });
+
+  // Platform analytics (FEATURES §51): a move to HUMAN_REQUESTED is an
+  // escalation — the one conversation transition that becomes a metric.
+  // The transition guard above made this the only path, so the event cannot
+  // double-fire; AI-initiated handoffs emit their own event in the tool with
+  // initiator "AI" (handoff-to-human tool).
+  if (to === "HUMAN_REQUESTED") {
+    await recordAnalyticsEvent({
+      type: "CONVERSATION_ESCALATED",
+      businessId: conversation.businessId,
+      leadId: conversation.leadId,
+      conversationId: conversation.id,
+      fromStatus: conversation.status,
+      toStatus: to,
+      initiator: "STAFF",
+    });
+  }
 
   publishConversationUpdated(
     conversation.businessId,

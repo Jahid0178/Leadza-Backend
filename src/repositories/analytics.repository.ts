@@ -314,8 +314,10 @@ function localMidnight(key: string, timeZone: string): Date {
 }
 
 /**
- * The business analytics read behind GET /api/v1/analytics/stats, or null
- * when the caller isn't a member (the controller answers 404, §13).
+ * The member-facing stats read behind GET /api/v1/analytics/stats, or null
+ * when the caller isn't a member (controller answers 404, §13). The
+ * aggregation itself lives in computeStatsForBusiness so the admin business
+ * drill-down (§51) returns identical numbers.
  */
 export async function getStatsForBusiness(
   userId: string,
@@ -324,12 +326,25 @@ export async function getStatsForBusiness(
 ): Promise<AnalyticsStats | null> {
   const membership = await findMembership(userId, businessId);
   if (!membership) return null;
+  return computeStatsForBusiness(businessId, range);
+}
 
+/**
+ * The business analytics computation behind GET /api/v1/analytics/stats
+ * (member-side) and the admin business drill-down (FEATURES §50/§51) —
+ * pure aggregates over one verified businessId, no authorization here: each
+ * caller proves tenancy (membership / platform role) before calling.
+ */
+export async function computeStatsForBusiness(
+  businessId: string,
+  range: AnalyticsRange,
+): Promise<AnalyticsStats | null> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: { timezone: true },
   });
-  const timezone = business?.timezone ?? "Europe/London";
+  if (!business) return null;
+  const timezone = business.timezone;
 
   const now = new Date();
   const todayKey = localDayKey(now, timezone);

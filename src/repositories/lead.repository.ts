@@ -5,6 +5,7 @@ import type {
   UpdateLeadInput,
 } from "../validation/lead.schemas";
 import { prisma } from "../lib/prisma";
+import { recordAnalyticsEvent } from "./analytics-events.repository";
 import { findMembership } from "./membership.repository";
 import { canTransitionLead, type LeadStatus } from "../services/lead-status";
 
@@ -308,6 +309,20 @@ export async function changeLeadStatusForUser(
   const updated = await prisma.lead.update({
     where: { id: leadId },
     data: { status: to },
+  });
+
+  // Platform analytics records every status move (FEATURES §51); the guard
+  // above already made this the only path, so events cannot double-fire.
+  // Leads are always moved by staff: the AI tools deliberately cannot change
+  // a lead's status (agent.md §19). Awaited but non-throwing — see
+  // recordAnalyticsEvent (§8: analytics failures never break the flow).
+  await recordAnalyticsEvent({
+    type: "LEAD_STATUS_CHANGED",
+    businessId: lead.businessId,
+    leadId: lead.id,
+    fromStatus: lead.status,
+    toStatus: to,
+    initiator: "STAFF",
   });
 
   const [withRel] = await withRelations([updated]);

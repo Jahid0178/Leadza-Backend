@@ -5,6 +5,7 @@ import { publishMessageCreated } from "../realtime/hub";
 import { clearTyping, setTyping } from "../realtime/typing";
 import { checkAiRun } from "../services/usage.service";
 import { recordAiUsage } from "../services/ai-usage.service";
+import { recordAnalyticsEvent } from "../repositories/analytics-events.repository";
 import { logger } from "../utils/logger";
 import { loadAgentContext } from "./context";
 import { enforceGuardrails, type GuardrailViolation } from "./guardrails";
@@ -192,6 +193,15 @@ export async function runLeadAgent(
       { err, conversationId, provider: provider.name },
       "AI provider call failed",
     );
+    // Platform analytics (FEATURES §51): the failed run becomes a metric —
+    // distinct from a conversation escalation, which is a workflow choice.
+    await recordAnalyticsEvent({
+      type: "AI_RUN_FAILED",
+      businessId: context.conversation.businessId,
+      leadId: context.conversation.leadId ?? null,
+      conversationId,
+      metadata: { provider: provider.name, reason: "provider_error" },
+    });
     return { status: "failed", reason: "provider_error", provider: provider.name };
   } finally {
     clearTyping(context.conversation.businessId, conversationId, "AI");

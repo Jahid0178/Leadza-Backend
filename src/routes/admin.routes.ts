@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requirePlatformAdmin } from "../auth/middleware";
 import * as adminController from "../controllers/admin.controller";
+import * as adminAnalyticsController from "../controllers/admin-analytics.controller";
 
 /**
  * /api/v1/admin — every endpoint requires an authenticated PLATFORM_ADMIN
@@ -13,6 +14,9 @@ import * as adminController from "../controllers/admin.controller";
  * platform role) and §45 audit logs. The audit trail is **read-only**: there is
  * deliberately no POST/PATCH/DELETE route for it, so those requests fall
  * through to the API's 404.
+ *
+ * §51 platform analytics (steps 33b) live at /admin/analytics/* — see the
+ * nested router at the bottom.
  */
 const router = Router();
 
@@ -38,5 +42,20 @@ router.get("/subscriptions", adminController.listSubscriptions);
 
 /** Phase H AI usage — §49 cost + volume per business, this month (step 32). */
 router.get("/usage", adminController.listUsage);
+
+/**
+ * §51 platform analytics (the "Admin analytics" build) — a nested path space
+ * below /admin/analytics. The window rule (from inclusive, to inclusive as a
+ * calendar day), metric definitions and the reporting timezone ( UTC) live
+ * in repositories/admin-analytics.repository.ts, one authoritative place.
+ */
+const analytics = Router();
+analytics.get("/overview", adminAnalyticsController.overview);
+analytics.get("/leads", adminAnalyticsController.leads);
+analytics.get("/ai-performance", adminAnalyticsController.aiPerformance);
+analytics.get("/businesses", adminAnalyticsController.businesses);
+analytics.get("/businesses/:businessId", adminAnalyticsController.businessAnalytics);
+analytics.get("/activity", adminAnalyticsController.activity);
+router.use("/analytics", analytics);
 
 export default router;

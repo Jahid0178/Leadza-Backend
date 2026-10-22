@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "AnalyticsEventType" ADD VALUE 'BUSINESS_REGISTERED';

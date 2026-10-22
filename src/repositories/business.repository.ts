@@ -1,5 +1,6 @@
 import type { Business } from "../../generated/prisma/client";
 import { prisma } from "../lib/prisma";
+import { recordAnalyticsEvent } from "./analytics-events.repository";
 import type { CreateBusinessInput } from "../validation/business.schemas";
 
 /**
@@ -45,6 +46,17 @@ export async function createBusinessWithOwner(
     await tx.businessMember.create({
       data: { businessId: business.id, userId, role: "OWNER" },
     });
+    // Platform analytics (FEATURES §51): registration event, written
+    // atomically with the business so the activity feed matches reality.
+    await recordAnalyticsEvent(
+      {
+        type: "BUSINESS_REGISTERED",
+        businessId: business.id,
+        toStatus: business.status,
+        metadata: business.type ? { type: business.type } : null,
+      },
+      tx,
+    );
     return business;
   });
 }

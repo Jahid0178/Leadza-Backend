@@ -159,14 +159,25 @@ beforeAll(async () => {
     data: { businessId: businessD, name: "Jane Doe", phone: "07700 900333" },
   });
 
-  // Funnel cohort: +40-day-old LOST and SPAM leads at the bottom.
+  // Funnel cohort: +40-day-old LOST and SPAM leads at the bottom. The
+  // in-window rows are pinned at today's business-local noon, so "today's"
+  // bucket holds them whenever the suite runs (midnight-adjacent runs would
+  // otherwise drop a now()-timestamped seed into yesterday's bucket).
+  const London = "Europe/London";
+  const todayKey = new Intl.DateTimeFormat("en-CA", {
+    timeZone: London,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const localNoon = new Date(`${todayKey}T12:00:00.000Z`);
   const longAgo = new Date(Date.now() - 40 * 86400000);
   await prisma.lead.createMany({
     data: [
-      { businessId: businessD, customerId: customerD.id, source: "WEBSITE" }, // NEW
-      { businessId: businessD, customerId: customerD.id, source: "WEBSITE", status: "QUALIFIED" },
-      { businessId: businessD, customerId: customerD.id, source: "WHATSAPP", status: "BOOKED" },
-      { businessId: businessD, customerId: customerD.id, source: "EMAIL", status: "WON" },
+      { businessId: businessD, customerId: customerD.id, source: "WEBSITE", createdAt: localNoon }, // NEW
+      { businessId: businessD, customerId: customerD.id, source: "WEBSITE", status: "QUALIFIED", createdAt: localNoon },
+      { businessId: businessD, customerId: customerD.id, source: "WHATSAPP", status: "BOOKED", createdAt: localNoon },
+      { businessId: businessD, customerId: customerD.id, source: "EMAIL", status: "WON", createdAt: localNoon },
       { businessId: businessD, customerId: customerD.id, source: "FACEBOOK", status: "LOST", createdAt: longAgo },
       { businessId: businessD, customerId: customerD.id, source: "WEBSITE", status: "SPAM", createdAt: longAgo },
     ],
@@ -202,20 +213,28 @@ beforeAll(async () => {
   await seedMessage(convUnanswered.id, "CUSTOMER", base.getTime() + minute);
   await seedMessage(convUnanswered.id, "SYSTEM", base.getTime() + 2 * minute); // system ≠ reply
 
-  // Two hours ago → inside every window; 5 min response.
+  // Local noon today → inside every window; 5 min response. Pinned like the
+  // leads above so the "today" bucket always holds it.
   const conv5min = await prisma.conversation.create({
     data: {
       businessId: businessD,
       customerId: customerD.id,
-      createdAt: new Date(Date.now() - 120 * minute),
+      createdAt: localNoon,
     },
   });
-  await seedMessage(conv5min.id, "CUSTOMER", Date.now() - 110 * minute);
-  await seedMessage(conv5min.id, "AI", Date.now() - 105 * minute); // 5 min response
+  await seedMessage(conv5min.id, "CUSTOMER", (localNoon as Date).getTime() - 10 * minute);
+  await seedMessage(conv5min.id, "AI", (localNoon as Date).getTime() - 5 * minute); // 5 min response
 }, 240000);
 
 afterAll(async () => {
   const ids = [owner, staff, outsider, solo].map((a) => a.userId);
+  // The status-endpoint instrumentation writes analytics events (§51) —
+  // clean them like the audit rows: no FKs, no cascade.
+  await prisma.analyticsEvent.deleteMany({
+    where: {
+      OR: [{ businessId: { in: [businessA, businessB, businessC, businessD] } }],
+    },
+  });
   await prisma.user.deleteMany({ where: { id: { in: ids } } });
   await prisma.business.deleteMany({
     where: {

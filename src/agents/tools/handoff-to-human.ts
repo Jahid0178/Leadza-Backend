@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
+import { recordAnalyticsEvent } from "../../repositories/analytics-events.repository";
 import { publishConversationUpdated } from "../../realtime/hub";
 import {
   canTransitionConversation,
@@ -31,13 +32,14 @@ export const handoffToHumanTool = defineTool({
   schema: z
     .object({ reason: z.string().trim().max(300).optional() })
     .strict(),
-  async handle(ctx) {
+  async handle(ctx, input) {
     const conversation = await prisma.conversation.findUnique({
       where: { id: ctx.conversationId },
       select: {
         id: true,
         businessId: true,
         status: true,
+        leadId: true,
         assignedToId: true,
       },
     });
@@ -63,6 +65,21 @@ export const handoffToHumanTool = defineTool({
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: { status: "HUMAN_REQUESTED" },
+    });
+
+    // Platform analytics (FEATURES §51): an AI-initiated escalation, emitted
+    // by this tool — the only AI path to HUMAN_REQUESTED (agent.md §26).
+    // Staff escalations through the status endpoint emit the same event type
+    // with initiator "STAFF" from the conversation repository.
+    await recordAnalyticsEvent({
+      type: "CONVERSATION_ESCALATED",
+      businessId: conversation.businessId,
+      leadId: conversation.leadId,
+      conversationId: conversation.id,
+      fromStatus: conversation.status,
+      toStatus: "HUMAN_REQUESTED",
+      initiator: "AI",
+      metadata: input.reason ? { reason: input.reason } : null,
     });
 
     // Staff watching the dashboard see the handover request immediately (§38).
